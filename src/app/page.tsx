@@ -192,6 +192,7 @@ export default function HomePage() {
                   <p className="text-white/80 text-xs text-center">
                     We&apos;ll crawl your website and LinkedIn to find messaging gaps.
                   </p>
+                  <p className="text-white/40 text-[10px] text-center font-mono mt-2">v0.5.2</p>
                 </div>
 
                 {error && (
