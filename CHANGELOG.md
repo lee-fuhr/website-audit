@@ -2,12 +2,18 @@
 
 All notable changes to the Website Messaging Audit tool.
 
+## [0.5.2] - 2025-12-31
+
+### Changed
+- Copy button now on SUGGESTED REWRITE text (the actual copy we're recommending)
+- Replaced fake ROI percentages with qualitative impact labels ("High-impact fix", "Medium-impact fix", "Polish item")
+
 ## [0.5.1] - 2025-12-31
 
 ### Added
 - Share buttons in header (Email, LinkedIn, Copy link)
-- Copy-to-clipboard button on each finding
-- ROI impact language on expanded issues (e.g., "Fixing critical issues typically increases qualified leads 20-35%")
+- Copy-to-clipboard button on rewrite suggestions
+- Impact labels on expanded issues (qualitative, not fake percentages)
 
 ## [0.5.0] - 2025-12-31
 

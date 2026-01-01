@@ -635,7 +635,7 @@ export default function HomePage() {
                 Privacy
               </Link>
             </nav>
-            <span className="absolute bottom-0 right-0 text-[10px] text-[var(--background)]/30 font-mono">v0.5.1</span>
+            <span className="absolute bottom-0 right-0 text-[10px] text-[var(--background)]/30 font-mono">v0.5.2</span>
           </div>
         </div>
       </footer>

@@ -176,7 +176,20 @@ function LockedFindings({
               <p className="text-xs text-[var(--muted-foreground)] mt-2">Found: {teaserFinding.location}</p>
             </div>
             <div className="p-3 bg-green-50 border-l-4 border-green-500">
-              <p className="text-xs font-bold text-green-600 mb-1">✓ SUGGESTED REWRITE</p>
+              <div className="flex justify-between items-start gap-2 mb-1">
+                <p className="text-xs font-bold text-green-600">✓ SUGGESTED REWRITE</p>
+                <button
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(teaserFinding.rewrite)
+                    const el = document.getElementById('copy-rewrite-btn')
+                    if (el) { el.textContent = '✓ Copied'; setTimeout(() => { el.textContent = 'Copy' }, 1500) }
+                  }}
+                  id="copy-rewrite-btn"
+                  className="text-xs px-2 py-0.5 bg-white border border-green-300 rounded hover:bg-green-100 transition-colors text-green-700 font-medium"
+                >
+                  Copy
+                </button>
+              </div>
               <p className="text-sm text-[var(--foreground)]">&quot;{teaserFinding.rewrite}&quot;</p>
             </div>
           </div>
@@ -578,29 +591,15 @@ export default function PreviewPage() {
                                 ? 'bg-amber-50 border-amber-500'
                                 : 'bg-blue-50 border-blue-500'
                             }`}>
-                              <div className="flex justify-between items-start gap-4 mb-2">
-                                <p className="text-sm text-[var(--foreground)]">
-                                  <strong>Why this matters:</strong> {
-                                    issue.severity === 'critical'
-                                      ? 'This is actively hurting your conversion rate. Visitors are leaving because of this issue.'
-                                      : issue.severity === 'warning'
-                                      ? 'This creates friction in the buyer journey. Fixing it will noticeably improve engagement.'
-                                      : 'This is a refinement opportunity that can improve your competitive positioning.'
-                                  }
-                                </p>
-                                <button
-                                  onClick={async (e) => {
-                                    e.stopPropagation()
-                                    await navigator.clipboard.writeText(`Issue: ${issue.title}\n\n${issue.description}`)
-                                    const btn = e.currentTarget
-                                    btn.textContent = '✓'
-                                    setTimeout(() => { btn.textContent = 'Copy' }, 1500)
-                                  }}
-                                  className="text-xs px-2 py-1 bg-white border border-[var(--border)] rounded hover:bg-[var(--muted)] transition-colors shrink-0"
-                                >
-                                  Copy
-                                </button>
-                              </div>
+                              <p className="text-sm text-[var(--foreground)] mb-2">
+                                <strong>Why this matters:</strong> {
+                                  issue.severity === 'critical'
+                                    ? 'This is actively hurting your conversion rate. Visitors are leaving because of this issue.'
+                                    : issue.severity === 'warning'
+                                    ? 'This creates friction in the buyer journey. Fixing it will noticeably improve engagement.'
+                                    : 'This is a refinement opportunity that can improve your competitive positioning.'
+                                }
+                              </p>
                               <p className="text-sm text-[var(--muted-foreground)] mb-3">
                                 {issue.severity === 'critical'
                                   ? 'Address this within 30 days for meaningful improvement.'
@@ -608,13 +607,13 @@ export default function PreviewPage() {
                                   ? 'Plan to address this within 60 days.'
                                   : 'Address after higher-priority items are complete.'}
                               </p>
-                              {/* ROI Impact */}
+                              {/* Impact statement - qualitative, not fake percentages */}
                               <p className="text-xs font-medium text-[var(--accent)]">
                                 {issue.severity === 'critical'
-                                  ? '📈 Fixing critical issues typically increases qualified leads 20-35%'
+                                  ? '⚡ High-impact fix — address this first'
                                   : issue.severity === 'warning'
-                                  ? '📈 Addressing these friction points improves conversion rates 10-20%'
-                                  : '📈 These refinements compound over time to strengthen positioning'}
+                                  ? '📋 Medium-impact fix — schedule this soon'
+                                  : '✨ Polish item — address when time permits'}
                               </p>
                             </div>
                             <p className="text-xs text-[var(--muted-foreground)] mt-3">
