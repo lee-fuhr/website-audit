@@ -330,6 +330,13 @@ Response: `{ success: true, checkoutUrl: string }`
 
 ## Changelog
 
+### 0.7.1 (2026-01-01)
+- **CRITICAL FIX:** Payment webhook now sets `paid=true` in KV (was only sending email)
+- **SECURITY:** Added SSRF protection to crawler (blocks private IPs, localhost, cloud metadata)
+- **FIX:** Sample page now uses same `topIssues` data structure as preview/results
+- **FIX:** KV operations wrapped in try/catch with fallback to local storage
+- **FIX:** Extended TTL to 24 hours after payment (was 1 hour)
+
 ### 0.7.0 (2026-01-01)
 - **CRITICAL FIX:** All 10 top priorities now show copy-paste rewrites (not just first 3)
 - **Data architecture change:** Findings now attached DIRECTLY to each topIssue (not separate arrays)

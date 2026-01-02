@@ -232,6 +232,12 @@ function findLinkedIn(html: string): string | undefined {
  * Fetch a single page with timeout and error handling
  */
 async function fetchPage(url: string, timeout = 5000): Promise<string | null> {
+  // SSRF protection: block private/internal URLs
+  if (isPrivateUrl(url)) {
+    console.warn(`[Crawler] Blocked private URL: ${url}`);
+    return null;
+  }
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
@@ -270,6 +276,15 @@ export async function crawlWebsite(
   maxPages = 25,
   onProgress?: (crawled: number, found: number, currentUrl: string) => void
 ): Promise<CrawlResult> {
+  // SSRF protection: reject private URLs at entry point
+  if (isPrivateUrl(startUrl)) {
+    console.error(`[Crawler] Rejected private URL: ${startUrl}`);
+    return {
+      pages: [],
+      errors: ['Cannot crawl private/internal URLs'],
+    };
+  }
+
   const result: CrawlResult = {
     pages: [],
     errors: [],

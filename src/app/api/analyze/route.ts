@@ -457,42 +457,37 @@ function buildPreview(crawlResult: CrawlResult, analysis: AnalysisResult): Previ
   }
 
   // Build topIssues with findings attached to each
-  // Distribute findings across issues - each issue gets up to 5 findings
-  const topIssuesWithFindings = analysis.topIssues.slice(0, 10).map((issue, issueIndex) => {
-    // Each issue gets a slice of findings
-    // Issue 0 gets findings 0-4, Issue 1 gets 5-9, etc.
-    // If we run out, cycle back to remaining findings
-    const findingsPerIssue = 5;
-    const startIndex = issueIndex * findingsPerIssue;
+  // CRITICAL: Each finding is used ONCE only - no repetition across issues
+  // Distribute findings round-robin style so each issue gets unique ones
 
-    // Get findings for this issue
-    let issueFindings: typeof allFindings = [];
+  // First, dedupe findings by phrase to avoid repetition
+  const seenPhrases = new Set<string>();
+  const uniqueFindings = allFindings.filter(f => {
+    const key = f.phrase.toLowerCase().trim();
+    if (seenPhrases.has(key)) return false;
+    seenPhrases.add(key);
+    return true;
+  });
 
-    if (allFindings.length > 0) {
-      // First, try to get a dedicated slice
-      if (startIndex < allFindings.length) {
-        issueFindings = allFindings.slice(startIndex, startIndex + findingsPerIssue);
-      }
+  // Distribute unique findings across issues - round robin
+  // Issue 0 gets finding 0, issue 1 gets finding 1, etc.
+  // Then issue 0 gets finding 10, issue 1 gets finding 11, etc.
+  const numIssues = Math.min(10, analysis.topIssues.length);
+  const findingsPerIssue: typeof allFindings[] = Array.from({ length: numIssues }, () => []);
 
-      // If we don't have enough, cycle through available findings
-      if (issueFindings.length === 0) {
-        // Cycle through all findings for issues that have no dedicated slice
-        const cycleIndex = issueIndex % Math.ceil(allFindings.length / findingsPerIssue);
-        const cycleStart = cycleIndex * findingsPerIssue;
-        issueFindings = allFindings.slice(cycleStart, cycleStart + findingsPerIssue);
-      }
-
-      // If still nothing, just grab first 5
-      if (issueFindings.length === 0 && allFindings.length > 0) {
-        issueFindings = allFindings.slice(0, findingsPerIssue);
-      }
+  uniqueFindings.forEach((finding, idx) => {
+    const issueIdx = idx % numIssues;
+    if (findingsPerIssue[issueIdx].length < 5) { // Max 5 per issue
+      findingsPerIssue[issueIdx].push(finding);
     }
+  });
 
+  const topIssuesWithFindings = analysis.topIssues.slice(0, 10).map((issue, issueIndex) => {
     return {
       title: issue.title,
       description: issue.description,
       severity: issue.severity,
-      findings: issueFindings,
+      findings: findingsPerIssue[issueIndex] || [],
     };
   });
 
