@@ -491,7 +491,7 @@ function ProcessingContent() {
               </p>
               {enrichmentStatus === 'failed' && submittedCompetitors.length > 0 && (
                 <p className="text-sm text-amber-600 mt-2">
-                  (Couldn&apos;t analyze {submittedCompetitors.join(', ')} — some sites block external access)
+                  (Couldn&apos;t analyze {submittedCompetitors.join(', ')} - some sites block external access)
                 </p>
               )}
             </div>
@@ -555,7 +555,7 @@ function ProcessingContent() {
                 />
               </div>
               <p className="text-center text-[var(--muted-foreground)] mb-6">
-                Your {status.pagesCrawled} pages are scanned — now enriching with additional context
+                Your {status.pagesCrawled} pages are scanned - now enriching with additional context
               </p>
             </>
           ) : (

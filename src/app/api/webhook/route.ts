@@ -8,10 +8,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { Resend } from 'resend';
+import { kv } from '@vercel/kv';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 const resend = new Resend(process.env.RESEND_API_KEY);
+
+// Check if KV is available
+const useKV = process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
@@ -40,6 +44,27 @@ export async function POST(request: NextRequest) {
     const { tool, analysisId } = session.metadata || {};
     const customerEmail = session.customer_email || session.customer_details?.email;
     const amountPaid = (session.amount_total || 0) / 100;
+
+    // CRITICAL: Update analysis state to mark as paid
+    if (analysisId && useKV) {
+      try {
+        const state = await kv.get<Record<string, unknown>>(`analysis:${analysisId}`);
+        if (state) {
+          await kv.set(`analysis:${analysisId}`, {
+            ...state,
+            paid: true,
+            paidAt: new Date().toISOString(),
+            customerEmail,
+            amountPaid,
+          }, { ex: 86400 }); // Extend TTL to 24 hours after payment
+          console.log(`[Webhook] Marked analysis ${analysisId} as paid for ${customerEmail}`);
+        } else {
+          console.error(`[Webhook] Analysis ${analysisId} not found in KV`);
+        }
+      } catch (kvError) {
+        console.error(`[Webhook] Failed to update analysis state:`, kvError);
+      }
+    }
 
     if (customerEmail && analysisId) {
       try {

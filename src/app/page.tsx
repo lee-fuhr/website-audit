@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { VERSION } from '@/lib/version'
 
 // Interactive ROI Calculator
 function ROICalculator({ toolCost }: { toolCost: number }) {
@@ -152,7 +153,7 @@ export default function HomePage() {
                 deals
               </h1>
               <p className="text-body text-xl md:text-2xl max-w-xl mb-6">
-                We crawl every page, find every generic phrase, and show you the <strong>exact fixes</strong> — built from proof points already on your site (buried where buyers never see them). Your top issues, free. Make improvements. Come back for more.
+                We crawl every page, find every generic phrase, and show you the <strong>exact fixes</strong> - built from proof points already on your site (buried where buyers never see them). Your top issues, free. Make improvements. Come back for more.
               </p>
               <div className="flex flex-wrap gap-4 text-sm text-[var(--muted-foreground)]">
                 <span>Critical issues free</span>
@@ -192,7 +193,7 @@ export default function HomePage() {
                   <p className="text-white/80 text-xs text-center">
                     We&apos;ll crawl your website and LinkedIn to find messaging gaps.
                   </p>
-                  <p className="text-white/40 text-[10px] text-center font-mono mt-2">v0.5.2</p>
+                  <p className="text-white/40 text-[10px] text-center font-mono mt-2">v{VERSION}</p>
                 </div>
 
                 {error && (
@@ -236,7 +237,7 @@ export default function HomePage() {
             Every page. Every phrase. Every fix.
           </h2>
           <p className="text-body text-lg text-[var(--muted-foreground)] text-center mb-16 max-w-2xl mx-auto">
-            Your proof points exist — they&apos;re just buried. We find them and show you exactly where to use them.
+            Your proof points exist - they&apos;re just buried. We find them and show you exactly where to use them.
           </p>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -252,7 +253,7 @@ export default function HomePage() {
                 <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
               <p className="text-section text-lg mb-2">All pages</p>
-              <p className="text-body text-sm text-[var(--muted-foreground)]">About, services, capabilities, process, contact — the whole site</p>
+              <p className="text-body text-sm text-[var(--muted-foreground)]">About, services, capabilities, process, contact - the whole site</p>
             </div>
             <div className="border-2 border-[var(--border)] p-6">
               <svg className="w-8 h-8 mb-4 text-[var(--foreground)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -412,7 +413,7 @@ export default function HomePage() {
               </div>
               <div className="bg-green-500/10 border border-green-500/30 p-6">
                 <p className="text-green-700 text-xs font-bold mb-3">✓ AFTER</p>
-                <p className="text-body italic">&ldquo;Your project manager, Sarah Chen, has delivered 14 pharmaceutical cleanrooms — including the Pfizer facility 3 miles from your site.&rdquo;</p>
+                <p className="text-body italic">&ldquo;Your project manager, Sarah Chen, has delivered 14 pharmaceutical cleanrooms - including the Pfizer facility 3 miles from your site.&rdquo;</p>
               </div>
             </div>
 
@@ -423,7 +424,7 @@ export default function HomePage() {
               </div>
               <div className="bg-green-500/10 border border-green-500/30 p-6">
                 <p className="text-green-700 text-xs font-bold mb-3">✓ AFTER</p>
-                <p className="text-body italic">&ldquo;147 projects in [region]. 12 repeat clients who&apos;ve hired us 3+ times. The Murphy plant expansion — the one off Highway 9 — that was us.&rdquo;</p>
+                <p className="text-body italic">&ldquo;147 projects in [region]. 12 repeat clients who&apos;ve hired us 3+ times. The Murphy plant expansion - the one off Highway 9 - that was us.&rdquo;</p>
               </div>
             </div>
           </div>
@@ -454,7 +455,7 @@ export default function HomePage() {
             <div className="bg-[var(--background)] p-6 border-l-4 border-[var(--accent)]">
               <p className="text-[var(--accent)] text-sm font-bold mb-2">SPECIFICS</p>
               <p className="text-section text-xl mb-3">The numbers that prove it</p>
-              <p className="text-body">Project counts, completion rates, dollar figures — the proof is in your project descriptions. We extract it for headlines.</p>
+              <p className="text-body">Project counts, completion rates, dollar figures - the proof is in your project descriptions. We extract it for headlines.</p>
             </div>
 
             <div className="bg-[var(--background)] p-6 border-l-4 border-[var(--accent)]">
@@ -508,7 +509,7 @@ export default function HomePage() {
             <div>
               <h3 className="font-semibold text-base mb-1">What&apos;s a &ldquo;commodity phrase&rdquo;?</h3>
               <p className="text-body text-sm text-[var(--muted-foreground)]">
-                Phrases like &ldquo;quality craftsmanship,&rdquo; &ldquo;customer-focused,&rdquo; &ldquo;innovative solutions.&rdquo; They feel safe. They&apos;re also invisible — buyers have read them 50 times this week. When everyone says the same thing, nobody says anything.
+                Phrases like &ldquo;quality craftsmanship,&rdquo; &ldquo;customer-focused,&rdquo; &ldquo;innovative solutions.&rdquo; They feel safe. They&apos;re also invisible - buyers have read them 50 times this week. When everyone says the same thing, nobody says anything.
               </p>
             </div>
 
@@ -522,14 +523,14 @@ export default function HomePage() {
             <div>
               <h3 className="font-semibold text-base mb-1">Do you scan competitor sites too?</h3>
               <p className="text-body text-sm text-[var(--muted-foreground)]">
-                The full audit includes competitor comparison — we&apos;ll show you how your messaging stacks up against 2-3 competitors you name. See exactly where they&apos;re outpositioning you.
+                The full audit includes competitor comparison - we&apos;ll show you how your messaging stacks up against 2-3 competitors you name. See exactly where they&apos;re outpositioning you.
               </p>
             </div>
 
             <div>
               <h3 className="font-semibold text-base mb-1">What if we don&apos;t have a LinkedIn page?</h3>
               <p className="text-body text-sm text-[var(--muted-foreground)]">
-                We&apos;ll still scan your website thoroughly. LinkedIn just gives us more material to work with — employee posts, company updates, engagement patterns. The more content you have, the more proof points we can extract.
+                We&apos;ll still scan your website thoroughly. LinkedIn just gives us more material to work with - employee posts, company updates, engagement patterns. The more content you have, the more proof points we can extract.
               </p>
             </div>
 
@@ -636,7 +637,7 @@ export default function HomePage() {
                 Privacy
               </Link>
             </nav>
-            <span className="absolute bottom-0 right-0 text-[10px] text-[var(--background)]/30 font-mono">v0.5.2</span>
+            <span className="absolute bottom-0 right-0 text-[10px] text-[var(--background)]/30 font-mono">v{VERSION}</span>
           </div>
         </div>
       </footer>

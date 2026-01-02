@@ -45,13 +45,13 @@ const auditData = {
         { factor: "Memorable hook", score: 1, max: 2, note: "Nothing sticky that visitors will remember" },
       ],
       evidence: [
-        "Homepage uses: 'quality,' 'service,' 'trusted partner'—same as every competitor",
-        "About page: 'Our average machinist has been with us 12 years'—THIS is a differentiator but hidden",
+        "Homepage uses: 'quality,' 'service,' 'trusted partner' - same as every competitor",
+        "About page: 'Our average machinist has been with us 12 years' - THIS is a differentiator but hidden",
         "No comparison to alternatives or acknowledgment of other options",
         "No single memorable phrase or tagline",
       ],
       howToImprove: [
-        "Surface the 12-year tenure stat to homepage—this proves stability competitors can't match",
+        "Surface the 12-year tenure stat to homepage - this proves stability competitors can't match",
         "Remove or replace all instances of 'quality' and 'service' with specific claims",
         "Create a 'Why Acme' section that answers: 'How the hell do they do that?'",
       ],
@@ -68,7 +68,7 @@ const auditData = {
         { factor: "Self-selection enabled", score: 1, max: 2, note: "Can't tell if you're right for them" },
       ],
       evidence: [
-        "Homepage: 'aerospace, automotive, medical, and more'—this is everyone",
+        "Homepage: 'aerospace, automotive, medical, and more' - this is everyone",
         "85% of testimonials are from medical device companies but homepage doesn't mention them",
         "No FDA, ISO 13485, or biocompatibility language on homepage despite serving medical",
         "A prospect can't quickly determine if they're your type of customer",
@@ -114,7 +114,7 @@ const auditData = {
         { factor: "Visual proof", score: 2, max: 2, note: "Facility photos, team photos present" },
       ],
       evidence: [
-        "ISO 9001 and ISO 13485 certifications—but both are footer only",
+        "ISO 9001 and ISO 13485 certifications - but both are footer only",
         "Client logos in footer, testimonials on About page only",
         "No metrics: defect rates, on-time %, parts produced, years in business",
         "Good facility and team photography throughout",
@@ -137,13 +137,13 @@ const auditData = {
         { factor: "Strategic placement", score: 2, max: 2, note: "Buttons present on all pages" },
       ],
       evidence: [
-        "Every page: 'Contact Us' button—no specificity",
+        "Every page: 'Contact Us' button - no specificity",
         "No mention of response time, quote process, or what happens next",
         "No lower-commitment options (download, video, sample request)",
         "Buttons are visible and well-placed throughout",
       ],
       howToImprove: [
-        "Primary button: 'Get a Quote in 24 Hours'—sets specific expectation",
+        "Primary button: 'Get a Quote in 24 Hours' - sets specific expectation",
         "Secondary button: 'See Our Work' or 'Request Sample Parts'",
         "Add a low-commitment offer: capabilities PDF, facility tour video",
       ],
@@ -257,8 +257,8 @@ const auditData = {
   <span>[Social proof, e.g., Trusted by XX companies in your industry]</span>
 </div>`,
     testimonial: {
-      quote: "[Pick your strongest customer quote—one that mentions a specific result or problem you solved. If you don't have one, ask your best customer for a 2-sentence testimonial.]",
-      attribution: "— [Title], [Company name]",
+      quote: "[Pick your strongest customer quote - one that mentions a specific result or problem you solved. If you don't have one, ask your best customer for a 2-sentence testimonial.]",
+      attribution: "- [Title], [Company name]",
     },
   },
 
@@ -266,7 +266,7 @@ const auditData = {
   customerDefinition: {
     intro: "Based on your testimonials and client list, here's a draft ideal customer profile. Refine each field to match your reality:",
     definition: {
-      companyType: "[Based on your testimonials: most seem to be medical device manufacturers—is that accurate? What type specifically?]",
+      companyType: "[Based on your testimonials: most seem to be medical device manufacturers - is that accurate? What type specifically?]",
       size: "[What's the typical revenue range and employee count of your best customers?]",
       situation: "[What problem or situation triggers them to look for you? What pain brought your best customers to you?]",
       whyYou: "[Why do they choose YOU over competitors? What do they value most?]",
@@ -276,7 +276,7 @@ const auditData = {
 
   // Why us differentiators
   whyUsCopy: {
-    intro: "We found this on your About page: 'Our average machinist has been with us 12 years.' That's a real differentiator—most shops have high turnover. Here's how to turn hidden proof points like this into a 'Why Us' section:",
+    intro: "We found this on your About page: 'Our average machinist has been with us 12 years.' That's a real differentiator - most shops have high turnover. Here's how to turn hidden proof points like this into a 'Why Us' section:",
     differentiators: [
       {
         headline: "[X] machinists. [X]-year average tenure.",
@@ -290,7 +290,7 @@ const auditData = {
       },
       {
         headline: "[Your quality metric]",
-        subtext: "[Defect rate, rejection rate, first-pass yield—whatever you track]",
+        subtext: "[Defect rate, rejection rate, first-pass yield - whatever you track]",
         note: "Template: 'Last year: [X] parts shipped. [X] rejected. That's [X]% defect rate.'",
       },
       {
@@ -314,7 +314,7 @@ const auditData = {
         "[X]% on-time delivery rate",
         "[Specific outcome: passed FDA audit / hit launch date / etc.]",
       ],
-      quote: "\"[Client quote about specific result or experience]\" — [Name], [Title], [Company]",
+      quote: "\"[Client quote about specific result or experience]\" - [Name], [Title], [Company]",
     },
   },
 
@@ -1090,7 +1090,7 @@ export default function AuditPage() {
             <h2 className="text-section mb-4">Where you stand</h2>
             <div className="callout mb-8">
               <p className="text-body">
-                <strong>A note on scoring:</strong> A perfect 10 is nearly theoretical—it would mean flawless messaging with zero room for improvement. That's not the goal. These scores are a <strong>prioritization rubric</strong> to show where changes will have the most impact. Focus on the lowest scores first.
+                <strong>A note on scoring:</strong> A perfect 10 is nearly theoretical - it would mean flawless messaging with zero room for improvement. That's not the goal. These scores are a <strong>prioritization rubric</strong> to show where changes will have the most impact. Focus on the lowest scores first.
               </p>
             </div>
             <p className="text-body-lg mb-8 max-w-3xl">
@@ -1169,7 +1169,7 @@ export default function AuditPage() {
               <h3 className="text-subsection mb-2">The 5-second test</h3>
               <p className="text-body">
                 Your prospects open 10 tabs. You have 5 seconds to answer: "Is this for me?" If they can't
-                immediately see what you do, who you serve, and why you're different—they close the tab.
+                immediately see what you do, who you serve, and why you're different - they close the tab.
                 This analysis applies the same framework I use with $5M+ manufacturing clients to diagnose
                 exactly where that clarity breaks down.
               </p>
@@ -1248,7 +1248,7 @@ export default function AuditPage() {
                 Most industrial websites lead with "Our Services" or "Our Products." Wrong order. Prospects
                 need to feel understood before they'll listen to your solution. The winning sequence:
                 <strong> Pain → Outcome → Proof → Features → Next Step</strong>. This analysis reveals
-                where your messaging breaks that sequence—and exactly how to fix it.
+                where your messaging breaks that sequence - and exactly how to fix it.
               </p>
             </div>
 
@@ -1271,7 +1271,7 @@ export default function AuditPage() {
                 <h3 className="text-subsection mb-4">What this means for you</h3>
                 <p className="text-body mb-4">
                   Leading with features assumes visitors already know they need CNC machining and are
-                  comparison shopping. But many prospects are earlier in their journey—they have a
+                  comparison shopping. But many prospects are earlier in their journey - they have a
                   problem and aren't sure how to solve it.
                 </p>
                 <p className="text-body">
@@ -1320,10 +1320,10 @@ export default function AuditPage() {
             <div className="methodology-box">
               <h3 className="text-subsection mb-2">The "more of these" principle</h3>
               <p className="text-body">
-                Think of your best customers—the ones who pay on time, don't nickel-and-dime you,
+                Think of your best customers - the ones who pay on time, don't nickel-and-dime you,
                 and refer others. Your website should speak directly to <em>that</em> company. When
                 you write for everyone, you connect with no one. This analysis identifies who your
-                site is currently attracting—and whether that matches who you actually want.
+                site is currently attracting - and whether that matches who you actually want.
               </p>
             </div>
 
@@ -1333,7 +1333,7 @@ export default function AuditPage() {
                 <h3 className="text-subsection mb-4">What we found</h3>
                 <p className="text-body mb-4">
                   Your site speaks to "industrial clients" and "companies in aerospace, automotive,
-                  medical, and more." This is everyone—which means it's no one.
+                  medical, and more." This is everyone - which means it's no one.
                 </p>
                 <div className="callout mt-4">
                   <p className="text-body">
@@ -1347,7 +1347,7 @@ export default function AuditPage() {
                 <h3 className="text-subsection mb-4">What this means for you</h3>
                 <p className="text-body mb-4">
                   A medical device engineer looking for a machining partner sees "aerospace, automotive,
-                  medical" and wonders if you really understand their world—FDA documentation, biocompatibility
+                  medical" and wonders if you really understand their world - FDA documentation, biocompatibility
                   requirements, the stakes of a failed part.
                 </p>
                 <p className="text-body">
@@ -1389,9 +1389,9 @@ export default function AuditPage() {
               <h3 className="text-subsection mb-2">The "how the hell" question</h3>
               <p className="text-body">
                 What would make your competitors ask: "How the hell did they do that?" Not aspirational
-                claims—operational realities. The 12-year average tenure. The 0.02% defect rate.
+                claims - operational realities. The 12-year average tenure. The 0.02% defect rate.
                 The custom fixturing. This analysis hunts for the proof you already have but aren't
-                using—and shows you exactly where to put it.
+                using - and shows you exactly where to put it.
               </p>
             </div>
 
@@ -1417,7 +1417,7 @@ export default function AuditPage() {
                 <h3 className="text-subsection mb-4">What this means for you</h3>
                 <p className="text-body mb-4">
                   When your messaging sounds like everyone else's, buyers compare on the only remaining
-                  variable: price. Your differentiation exists—it's just buried or unstated.
+                  variable: price. Your differentiation exists - it's just buried or unstated.
                 </p>
                 <p className="text-body">
                   The goal isn't to invent differentiation. It's to surface what's already true about
@@ -1457,7 +1457,7 @@ export default function AuditPage() {
               <h3 className="text-subsection mb-2">Finding the white space</h3>
               <p className="text-body">
                 If everyone claims "quality" and "service," those words mean nothing. I analyzed your
-                three closest competitors to find what they're <em>not</em> saying—the position nobody's
+                three closest competitors to find what they're <em>not</em> saying - the position nobody's
                 claimed. That's where you win. This analysis shows exactly where the opening is.
               </p>
             </div>
@@ -1496,7 +1496,7 @@ export default function AuditPage() {
             <div className="callout mb-8">
               <h3 className="text-subsection mb-2">💡 Opportunity spotted</h3>
               <p className="text-body">
-                No competitor is claiming the "partnership" position—the long-term relationship angle.
+                No competitor is claiming the "partnership" position - the long-term relationship angle.
                 Your 12-year average machinist tenure and high customer retention rate could own this
                 space: "The shop that becomes part of your team."
               </p>
@@ -1623,7 +1623,7 @@ export default function AuditPage() {
               <p className="text-body">
                 "Request a Quote" on your homepage? You're asking someone who just met you to make a
                 commitment. That's like proposing on a first date. This analysis maps every call-to-action
-                on your site against where visitors actually are in their decision process—and shows
+                on your site against where visitors actually are in their decision process - and shows
                 you what actions to offer at each stage.
               </p>
             </div>
@@ -1650,7 +1650,7 @@ export default function AuditPage() {
                 <h3 className="text-subsection mb-4">What this means for you</h3>
                 <p className="text-body mb-4">
                   "Contact Us" asks for commitment before you've built trust. Visitors who aren't
-                  ready to talk—but might be great fits—have no way to stay engaged.
+                  ready to talk - but might be great fits - have no way to stay engaged.
                 </p>
                 <p className="text-body">
                   Result: You only capture prospects who are already ready to buy. Everyone else leaves.
@@ -1694,7 +1694,7 @@ export default function AuditPage() {
           <div className="container">
             <h2 className="text-section mb-6">Copy you can use today</h2>
             <p className="text-body-lg mb-8 max-w-3xl">
-              These aren't suggestions—they're actual rewrites you can copy and paste. Each one
+              These aren't suggestions - they're actual rewrites you can copy and paste. Each one
               transforms generic messaging into something specific, provable, and differentiated.
             </p>
 
@@ -1801,7 +1801,7 @@ export default function AuditPage() {
               <div className="border-t border-white/20 mt-8 pt-8 text-sm relative">
                 <div className="grid md:grid-cols-2 gap-4 opacity-70 mb-4">
                   <p>
-                    <strong>No refunds after purchase.</strong> You've seen the free preview — you know what you're getting.
+                    <strong>No refunds after purchase.</strong> You've seen the free preview - you know what you're getting.
                   </p>
                   <p>
                     <strong>Link expires in 30 days.</strong> Download the PDF to keep your audit forever.
