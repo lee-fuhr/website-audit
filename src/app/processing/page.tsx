@@ -3,6 +3,60 @@
 import { useState, useEffect, Suspense, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 
+// CSS animations for fade transitions and shimmer
+const styles = `
+  @keyframes fadeInOut {
+    0% { opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: -200px 0;
+    }
+    100% {
+      background-position: 200px 0;
+    }
+  }
+
+  @keyframes dotFade {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 1; }
+  }
+
+  .fade-message {
+    animation: fadeInOut 0.6s ease-in-out;
+  }
+
+  .shimmer-bar {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .shimmer-bar::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.4),
+      transparent
+    );
+    background-size: 200px 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  .dot-1 { animation: dotFade 1.2s infinite 0s; }
+  .dot-2 { animation: dotFade 1.2s infinite 0.4s; }
+  .dot-3 { animation: dotFade 1.2s infinite 0.8s; }
+`
+
 // Animated counter component
 function AnimatedCounter({ value, className }: { value: number; className?: string }) {
   const [displayValue, setDisplayValue] = useState(0)
@@ -41,6 +95,16 @@ function ProcessingContent() {
   const router = useRouter()
   const analysisId = searchParams.get('id')
 
+  // Inject styles on mount
+  useEffect(() => {
+    const styleElement = document.createElement('style')
+    styleElement.textContent = styles
+    document.head.appendChild(styleElement)
+    return () => {
+      document.head.removeChild(styleElement)
+    }
+  }, [])
+
   const [status, setStatus] = useState<{
     progress: number;
     message: string;
@@ -72,6 +136,30 @@ function ProcessingContent() {
   const [emailSubmitted, setEmailSubmitted] = useState(false)
   const [enrichmentStatus, setEnrichmentStatus] = useState<string | null>(null)
   const [enrichmentMessage, setEnrichmentMessage] = useState('')
+
+  // Rotating status messages during AI analysis
+  const [aiStatusIndex, setAiStatusIndex] = useState(0)
+  const [stuckTime, setStuckTime] = useState(0)
+  const [showEmailPrompt, setShowEmailPrompt] = useState(false)
+  const [fakeProgress, setFakeProgress] = useState(70)
+
+  const aiStatusMessages = [
+    'Analyzing hero headlines and positioning...',
+    'Evaluating value propositions...',
+    'Checking proof points and social proof...',
+    'Reviewing call-to-action clarity...',
+    'Assessing target audience specificity...',
+    'Detecting your target audience clarity...',
+    'Reviewing your competitive differentiation...',
+    'Checking social proof elements...',
+    'Examining trust signals...',
+    'Analyzing feature vs benefit framing...',
+    'Reviewing navigation and user flow...',
+    'Checking testimonial placement...',
+    'Analyzing brand voice consistency...',
+    'Examining technical messaging...',
+    'Finalizing comprehensive analysis...',
+  ]
 
   const MAX_COMPETITORS = 5
 
@@ -306,6 +394,53 @@ function ProcessingContent() {
     }
   }, [analysisId, router])
 
+  // Rotate AI status messages with variable delay, increment fake progress, track stuck time
+  useEffect(() => {
+    if (status.status !== 'analyzing') {
+      setStuckTime(0)
+      setShowEmailPrompt(false)
+      setFakeProgress(70)
+      return
+    }
+
+    // Message rotation with random 3000-7000ms delay
+    const scheduleNextMessage = () => {
+      const delay = Math.random() * 4000 + 3000
+      return setTimeout(() => {
+        setAiStatusIndex(prev => (prev + 1) % aiStatusMessages.length)
+        scheduleNextMessage()
+      }, delay)
+    }
+
+    let messageTimeout = scheduleNextMessage()
+
+    // Increment fake progress from 70% to 95% during analyzing
+    const progressInterval = setInterval(() => {
+      setFakeProgress(prev => {
+        const increment = Math.random() * 0.2 + 0.3 // 0.3-0.5%
+        const newProgress = Math.min(prev + increment, 95)
+        return newProgress
+      })
+    }, 1000)
+
+    // Track stuck time for email prompt
+    const stuckInterval = setInterval(() => {
+      setStuckTime(prev => {
+        const newTime = prev + 1000
+        if (newTime >= 30000 && !showEmailPrompt) {
+          setShowEmailPrompt(true)
+        }
+        return newTime
+      })
+    }, 1000)
+
+    return () => {
+      clearTimeout(messageTimeout)
+      clearInterval(progressInterval)
+      clearInterval(stuckInterval)
+    }
+  }, [status.status, showEmailPrompt, aiStatusMessages.length])
+
   const handleRevealResults = () => {
     router.push(`/preview/${analysisId}`)
   }
@@ -522,6 +657,15 @@ function ProcessingContent() {
                 {enrichmentMessage || 'Analyzing additional context...'}
               </p>
             </>
+          ) : status.status === 'analyzing' ? (
+            <>
+              <h1 className="text-section text-3xl text-[var(--foreground)] mb-2">
+                Analyzing<span className="dot-1">.</span><span className="dot-2">.</span><span className="dot-3">.</span>
+              </h1>
+              <p className="text-body text-[var(--muted-foreground)]">
+                AI is evaluating your messaging against proven frameworks.
+              </p>
+            </>
           ) : (
             <>
               <h1 className="text-section text-3xl text-[var(--foreground)] mb-2">
@@ -562,14 +706,43 @@ function ProcessingContent() {
             <>
               <div className="h-3 bg-[var(--border)] mb-4 overflow-hidden rounded-full">
                 <div
-                  className="h-full bg-[var(--accent)] transition-all duration-500 rounded-full"
-                  style={{ width: `${status.progress}%` }}
+                  className="h-full transition-all duration-500 rounded-full shimmer-bar bg-[var(--accent)]"
+                  style={{ width: `${status.status === 'analyzing' ? fakeProgress : status.progress}%` }}
                 />
               </div>
               <p className="text-center text-[var(--muted-foreground)] mb-6">
-                {status.progress}% complete
+                {status.status === 'analyzing' ? Math.round(fakeProgress) : status.progress}% complete
               </p>
             </>
+          )}
+
+          {/* "Taking a while?" prompt after 30 seconds at 70%+ progress */}
+          {showEmailPrompt && !emailSubmitted && status.status === 'analyzing' && (
+            <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded text-center mb-6">
+              <p className="text-sm font-medium text-yellow-800 mb-2">
+                Taking longer than expected?
+              </p>
+              <p className="text-xs text-yellow-700 mb-3">
+                Enter your email and we&apos;ll send the results when ready.
+                Feel free to close this tab - we&apos;ll keep analyzing.
+              </p>
+              <div className="flex items-center justify-center gap-2">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSubmitEmail()}
+                  placeholder="you@company.com"
+                  className="px-3 py-2 text-sm border border-yellow-300 rounded focus:outline-none focus:border-yellow-500"
+                />
+                <button
+                  onClick={handleSubmitEmail}
+                  className="px-4 py-2 text-sm bg-yellow-600 text-white rounded hover:bg-yellow-700"
+                >
+                  Notify me
+                </button>
+              </div>
+            </div>
           )}
 
           {/* Current page being scanned - only during main crawl */}
@@ -582,9 +755,16 @@ function ProcessingContent() {
 
           {/* Status message when analyzing - main analysis */}
           {status.status === 'analyzing' && (
-            <p className="text-body text-lg text-center mb-6">
-              {status.message}
-            </p>
+            <div className="text-center mb-6">
+              <div key={aiStatusIndex} className="fade-message">
+                <p className="text-body text-lg mb-2">
+                  {aiStatusMessages[aiStatusIndex]}
+                </p>
+              </div>
+              <p className="text-xs text-[var(--muted-foreground)]">
+                AI analysis can take 30-60 seconds for thorough results
+              </p>
+            </div>
           )}
 
           {/* Pages scanned counter */}

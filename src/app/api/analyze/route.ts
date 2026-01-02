@@ -5,6 +5,10 @@
  * returns progress updates and results.
  */
 
+// Force dynamic to skip static generation
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
 import { kv } from '@vercel/kv';
@@ -375,21 +379,17 @@ async function processAnalysis(analysisId: string): Promise<void> {
 
     // Build preview and full results from analysis
     const preview = buildPreview(crawlResult, analysisResult);
-    const fullResults = buildFullResults(analysisResult);
+    let fullResults = buildFullResults(analysisResult);
 
-    // Complete main analysis
-    await updateState(analysisId, {
-      status: 'complete',
-      progress: 100,
-      message: 'Analysis complete',
-      completedAt: new Date().toISOString(),
-      preview,
-      fullResults,
-    });
-
-    // Auto-trigger competitor analysis if AI suggested competitors
+    // Run competitor analysis BEFORE marking complete (with timeout)
+    // This ensures user sees competitor data on first preview load
     const suggestedCompetitors = analysisResult.suggestedCompetitors || [];
     if (suggestedCompetitors.length > 0) {
+      await updateState(analysisId, {
+        progress: 92,
+        message: 'Analyzing competitors...',
+      });
+
       // Sort by confidence (high first) and take top 5
       const sortedCompetitors = [...suggestedCompetitors]
         .sort((a, b) => {
@@ -399,13 +399,37 @@ async function processAnalysis(analysisId: string): Promise<void> {
         .slice(0, 5)
         .map(c => c.domain);
 
-      // Trigger background competitor analysis
-      waitUntil(
-        analyzeCompetitors(analysisId, sortedCompetitors).catch(err => {
-          console.error('Auto competitor analysis failed:', err);
-        })
-      );
+      // Await competitor analysis with 30s timeout
+      const COMPETITOR_TIMEOUT = 30000;
+      try {
+        await Promise.race([
+          analyzeCompetitorsInline(sortedCompetitors, preview.commodityScore),
+          new Promise<null>((resolve) =>
+            setTimeout(() => resolve(null), COMPETITOR_TIMEOUT)
+          )
+        ]).then((competitorData) => {
+          if (competitorData) {
+            fullResults = {
+              ...fullResults,
+              competitorComparison: competitorData,
+            };
+          }
+        });
+      } catch (err) {
+        console.log('Competitor analysis failed:', err);
+        // Continue without competitor data
+      }
     }
+
+    // NOW mark as complete - with competitor data included
+    await updateState(analysisId, {
+      status: 'complete',
+      progress: 100,
+      message: 'Analysis complete',
+      completedAt: new Date().toISOString(),
+      preview,
+      fullResults,
+    });
 
   } catch (error) {
     console.error('Processing error:', error);
@@ -427,71 +451,38 @@ async function updateState(id: string, updates: Partial<AnalysisState>) {
 /**
  * Build preview data from analysis results
  *
- * CRITICAL: Each topIssue gets findings attached DIRECTLY to it.
- * We distribute phrase-level findings across top issues so every issue has rewrites.
+ * NEW STRUCTURE: Findings come directly on topIssues from the AI.
+ * Each issue already has its own findings attached - no distribution needed.
  */
 function buildPreview(crawlResult: CrawlResult, analysis: AnalysisResult): PreviewData {
   const hostname = new URL(crawlResult.pages[0]?.url || 'https://example.com').hostname;
 
-  // Collect ALL phrase-level findings from pageAnalysis
-  const allFindings: Array<{
-    phrase: string;
-    problem: string;
-    rewrite: string;
-    location: string;
-    pageUrl: string;
-  }> = [];
+  // Build topIssues - findings are already attached from the analyzer
+  const topIssuesWithFindings = analysis.topIssues.slice(0, 10).map((issue) => {
+    // Use findings directly from the issue (new structure)
+    // Ensure each finding has required fields with defaults
+    const findings = (issue.findings || []).slice(0, 5).map(f => ({
+      phrase: f.phrase || '',
+      problem: f.problem || '',
+      rewrite: f.rewrite || '',
+      location: f.location || '',
+      pageUrl: f.pageUrl || crawlResult.pages[0]?.url || '',
+    }));
 
-  for (const page of analysis.pageAnalysis) {
-    for (const issue of page.issues) {
-      if (issue.phrase && issue.rewrite) {
-        allFindings.push({
-          phrase: issue.phrase,
-          problem: issue.problem,
-          rewrite: issue.rewrite,
-          location: issue.location,
-          pageUrl: page.url,
-        });
-      }
-    }
-  }
-
-  // Build topIssues with findings attached to each
-  // CRITICAL: Each finding is used ONCE only - no repetition across issues
-  // Distribute findings round-robin style so each issue gets unique ones
-
-  // First, dedupe findings by phrase to avoid repetition
-  const seenPhrases = new Set<string>();
-  const uniqueFindings = allFindings.filter(f => {
-    const key = f.phrase.toLowerCase().trim();
-    if (seenPhrases.has(key)) return false;
-    seenPhrases.add(key);
-    return true;
-  });
-
-  // Distribute unique findings across issues - round robin
-  // Issue 0 gets finding 0, issue 1 gets finding 1, etc.
-  // Then issue 0 gets finding 10, issue 1 gets finding 11, etc.
-  const numIssues = Math.min(10, analysis.topIssues.length);
-  const findingsPerIssue: typeof allFindings[] = Array.from({ length: numIssues }, () => []);
-
-  uniqueFindings.forEach((finding, idx) => {
-    const issueIdx = idx % numIssues;
-    if (findingsPerIssue[issueIdx].length < 5) { // Max 5 per issue
-      findingsPerIssue[issueIdx].push(finding);
-    }
-  });
-
-  const topIssuesWithFindings = analysis.topIssues.slice(0, 10).map((issue, issueIndex) => {
     return {
       title: issue.title,
       description: issue.description,
       severity: issue.severity,
-      findings: findingsPerIssue[issueIndex] || [],
+      findings,
     };
   });
 
+  // Log finding count for debugging
+  const totalFindings = topIssuesWithFindings.reduce((sum, i) => sum + i.findings.length, 0);
+  console.log(`[buildPreview] Total findings across ${topIssuesWithFindings.length} issues: ${totalFindings}`);
+
   // First finding overall is the legacy teaser (backwards compatibility)
+  const allFindings = topIssuesWithFindings.flatMap(i => i.findings);
   const teaserFinding = allFindings[0] || undefined;
 
   return {
@@ -646,6 +637,106 @@ export async function PATCH(request: NextRequest) {
       { success: false, error: 'Something went wrong.' },
       { status: 500 }
     );
+  }
+}
+
+/**
+ * Inline competitor analysis - returns data directly (for use before marking complete)
+ */
+async function analyzeCompetitorsInline(
+  competitors: string[],
+  yourScore: number
+): Promise<FullResults['competitorComparison'] | null> {
+  try {
+    const competitorScores: Array<{ url: string; score: number }> = [];
+
+    for (const competitorUrl of competitors) {
+      // Normalize URL
+      let normalizedUrl = competitorUrl;
+      if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
+        normalizedUrl = 'https://' + normalizedUrl;
+      }
+
+      try {
+        // Quick crawl - just homepage (1 page for speed)
+        const crawlResult = await crawlWebsite(normalizedUrl, 1);
+
+        if (crawlResult.pages.length > 0) {
+          const content = crawlResult.pages[0]?.content || '';
+          const commodityPhrases = [
+            'leading', 'innovative', 'solutions', 'best-in-class', 'world-class',
+            'cutting-edge', 'next-generation', 'state-of-the-art', 'industry-leading',
+            'trusted', 'proven', 'reliable', 'premier', 'top', 'quality', 'excellence',
+            'committed', 'dedicated', 'passionate', 'partner'
+          ];
+
+          const differentiators = [
+            '%', 'years', 'customers', 'clients', 'projects', 'since', 'founded',
+            'certified', 'iso', 'award', 'patent', 'guarantee', 'warranty'
+          ];
+
+          const lowerContent = content.toLowerCase();
+
+          let genericCount = 0;
+          for (const phrase of commodityPhrases) {
+            if (lowerContent.includes(phrase)) genericCount++;
+          }
+
+          let differentiatorCount = 0;
+          for (const phrase of differentiators) {
+            if (lowerContent.includes(phrase)) differentiatorCount++;
+          }
+
+          const score = Math.max(15, Math.min(85, 50 - (genericCount * 3) + (differentiatorCount * 4)));
+
+          competitorScores.push({
+            url: competitorUrl,
+            score,
+          });
+        }
+      } catch (err) {
+        console.log(`Could not analyze competitor ${competitorUrl}:`, err);
+      }
+    }
+
+    if (competitorScores.length === 0) {
+      return null;
+    }
+
+    const avgScore = Math.round(competitorScores.reduce((sum, c) => sum + c.score, 0) / competitorScores.length);
+    const gaps: string[] = [];
+
+    if (yourScore > avgScore + 10) {
+      gaps.push('Your messaging is more differentiated than most competitors');
+      gaps.push('You have unique proof points competitors lack');
+    } else if (yourScore < avgScore - 10) {
+      gaps.push('Competitors have clearer differentiation than you');
+      gaps.push('Look for proof points you can surface to stand out');
+    } else {
+      gaps.push('Your messaging is similar to competitors - room to differentiate');
+      gaps.push('Focus on unique proof points only you can claim');
+    }
+
+    const bestCompetitor = competitorScores.reduce((best, c) => c.score > best.score ? c : best, competitorScores[0]);
+    const worstCompetitor = competitorScores.reduce((worst, c) => c.score < worst.score ? c : worst, competitorScores[0]);
+
+    if (bestCompetitor && bestCompetitor.score > yourScore) {
+      gaps.push(`${bestCompetitor.url} has stronger differentiation - worth studying`);
+    }
+    if (worstCompetitor && worstCompetitor.score < yourScore - 15) {
+      gaps.push(`You're ahead of ${worstCompetitor.url} in messaging clarity`);
+    }
+
+    return {
+      competitors,
+      yourScore,
+      averageScore: avgScore,
+      gaps,
+      detailedScores: competitorScores,
+    };
+  } catch (error) {
+    console.error('Inline competitor analysis error:', error);
+    return null;
   }
 }
 

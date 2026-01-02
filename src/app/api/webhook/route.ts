@@ -5,14 +5,18 @@
  * Handles payment confirmation and sends receipt emails
  */
 
+// Force dynamic to skip static generation
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { Resend } from 'resend';
 import { kv } from '@vercel/kv';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Lazy initialization to avoid build-time errors
+const getStripe = () => new Stripe(process.env.STRIPE_SECRET_KEY!);
+const getResend = () => new Resend(process.env.RESEND_API_KEY);
 
 // Check if KV is available
 const useKV = process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
@@ -28,7 +32,7 @@ export async function POST(request: NextRequest) {
   let event: Stripe.Event;
 
   try {
-    event = stripe.webhooks.constructEvent(
+    event = getStripe().webhooks.constructEvent(
       body,
       signature,
       process.env.STRIPE_WEBHOOK_SECRET!
@@ -78,7 +82,7 @@ export async function POST(request: NextRequest) {
         const baseUrl = toolUrls[tool || ''] || 'https://leefuhr.com';
         const resultsUrl = `${baseUrl}/results/${analysisId}`;
 
-        await resend.emails.send({
+        await getResend().emails.send({
           from: 'Lee Fuhr <tools@leefuhr.com>',
           to: customerEmail,
           subject: `Your ${tool} results are ready`,
