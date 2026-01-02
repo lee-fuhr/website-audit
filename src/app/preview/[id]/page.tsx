@@ -1695,47 +1695,30 @@ export default function PreviewPage() {
                 {data.competitorComparison.detailedScores && data.competitorComparison.detailedScores.length > 0 && isTestUnlocked && (
                 <div className="mb-8">
                   <h3 className="text-subsection mb-4">What you can steal</h3>
-                  <div className="space-y-6">
-                    {data.competitorComparison.detailedScores.map((competitor, idx) => (
-                      <div key={idx} className="p-6 bg-[var(--muted)] border border-[var(--border)] rounded">
-                        <div className="flex items-center justify-between mb-4">
-                          <h4 className="font-semibold text-[var(--foreground)]">{competitor.name}</h4>
-                          <span className={`text-sm font-medium px-2 py-1 rounded ${
-                            competitor.score > (preview?.commodityScore || 50)
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-green-100 text-green-800'
-                          }`}>
-                            Score: {competitor.score}
-                          </span>
-                        </div>
-                        {competitor.strengths && competitor.strengths.length > 0 && (
-                          <div className="mb-4">
-                            <p className="text-sm font-medium text-[var(--foreground)] mb-2">Their strengths to learn from:</p>
-                            <ul className="space-y-1">
-                              {competitor.strengths.map((strength, sIdx) => (
-                                <li key={sIdx} className="text-sm text-[var(--muted-foreground)] flex items-start gap-2">
-                                  <span className="text-green-600 mt-0.5">→</span>
-                                  <span>{strength}</span>
-                                </li>
-                              ))}
-                            </ul>
+                  <div className="space-y-4">
+                    <p className="text-body text-[var(--muted-foreground)]">
+                      Competitor scores compared to yours. Lower scores mean less differentiated messaging - opportunities for you to stand out.
+                    </p>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {data.competitorComparison.detailedScores.map((competitor, idx) => {
+                        // Extract domain from URL for display
+                        const displayName = competitor.url.replace(/^https?:\/\//, '').replace(/\/$/, '').split('/')[0]
+                        const isBeatingYou = competitor.score > (preview?.commodityScore || 50)
+                        return (
+                          <div key={idx} className={`p-4 border-2 rounded ${isBeatingYou ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium text-[var(--foreground)] truncate mr-2">{displayName}</span>
+                              <span className={`text-sm font-bold px-2 py-0.5 rounded ${isBeatingYou ? 'bg-amber-200 text-amber-800' : 'bg-green-200 text-green-800'}`}>
+                                {competitor.score}
+                              </span>
+                            </div>
+                            <p className="text-xs text-[var(--muted-foreground)] mt-1">
+                              {isBeatingYou ? 'More differentiated than you - study their messaging' : 'Less differentiated - you have an advantage here'}
+                            </p>
                           </div>
-                        )}
-                        {competitor.weaknesses && competitor.weaknesses.length > 0 && (
-                          <div>
-                            <p className="text-sm font-medium text-[var(--foreground)] mb-2">Where you can beat them:</p>
-                            <ul className="space-y-1">
-                              {competitor.weaknesses.map((weakness, wIdx) => (
-                                <li key={wIdx} className="text-sm text-[var(--muted-foreground)] flex items-start gap-2">
-                                  <span className="text-[var(--accent)] mt-0.5">→</span>
-                                  <span>{weakness}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                        )
+                      })}
+                    </div>
                   </div>
                 </div>
                 )}
