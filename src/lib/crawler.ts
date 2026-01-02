@@ -5,6 +5,64 @@
  * Designed to work in serverless environment (no puppeteer needed).
  */
 
+/**
+ * SSRF Protection: Check if a URL points to a private/internal network
+ * Blocks: localhost, private IPs, link-local, loopback
+ */
+function isPrivateUrl(urlString: string): boolean {
+  try {
+    const url = new URL(urlString);
+    const hostname = url.hostname.toLowerCase();
+
+    // Block localhost variations
+    if (hostname === 'localhost' || hostname === 'localhost.localdomain') {
+      return true;
+    }
+
+    // Block IPv6 localhost
+    if (hostname === '::1' || hostname === '[::1]') {
+      return true;
+    }
+
+    // Check if hostname is an IP address
+    const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (ipv4Match) {
+      const [, a, b, c] = ipv4Match.map(Number);
+
+      // Block loopback (127.x.x.x)
+      if (a === 127) return true;
+
+      // Block private Class A (10.x.x.x)
+      if (a === 10) return true;
+
+      // Block private Class B (172.16.x.x - 172.31.x.x)
+      if (a === 172 && b >= 16 && b <= 31) return true;
+
+      // Block private Class C (192.168.x.x)
+      if (a === 192 && b === 168) return true;
+
+      // Block link-local (169.254.x.x)
+      if (a === 169 && b === 254) return true;
+
+      // Block 0.0.0.0
+      if (a === 0 && b === 0 && c === 0) return true;
+    }
+
+    // Block cloud metadata endpoints (AWS, GCP, Azure)
+    if (hostname === '169.254.169.254' || // AWS/GCP metadata
+        hostname === 'metadata.google.internal' ||
+        hostname === 'metadata.azure.com' ||
+        hostname.endsWith('.internal') ||
+        hostname.endsWith('.local')) {
+      return true;
+    }
+
+    return false;
+  } catch {
+    return true; // Invalid URL = block it
+  }
+}
+
 export interface CrawledPage {
   url: string;
   title: string;

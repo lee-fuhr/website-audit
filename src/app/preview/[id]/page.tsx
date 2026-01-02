@@ -7,6 +7,14 @@ import { ViewNavBar } from '@/components/ViewNavBar'
 import { Footer } from '@/components/Footer'
 
 // Types for API response
+interface Finding {
+  phrase: string
+  problem: string
+  rewrite: string
+  location: string
+  pageUrl: string
+}
+
 interface PreviewData {
   commodityScore: number
   pagesScanned: number
@@ -14,6 +22,8 @@ interface PreviewData {
     title: string
     description: string
     severity: 'critical' | 'warning' | 'info'
+    // Findings attached DIRECTLY to each issue (up to 5 per issue)
+    findings: Finding[]
   }>
   siteSnapshot: {
     title: string
@@ -21,13 +31,8 @@ interface PreviewData {
     hasLinkedIn: boolean
     pagesFound: string[]
   }
-  teaserFinding?: {
-    phrase: string
-    problem: string
-    rewrite: string
-    location: string
-    pageUrl: string
-  }
+  // Legacy single teaser
+  teaserFinding?: Finding
   voiceSummary?: {
     currentTone: string
     authenticVoice: string
@@ -130,7 +135,7 @@ function getScoreDescription(score: number): string {
   if (score >= 80) return 'Your website stands out from competitors. Keep refining your specific proof points.'
   if (score >= 60) return 'Some differentiation, but opportunities remain. A few targeted improvements could make a big difference.'
   if (score >= 40) return 'Your website sounds like most competitors. Buyers can\'t tell you apart and may default to price.'
-  return 'Your website could be anyone\'s. You\'re competing purely on price — and losing to better marketers.'
+  return 'Your website could be anyone\'s. You\'re competing purely on price - and losing to better marketers.'
 }
 
 function getScoreColorClass(score: number): string {
@@ -212,7 +217,7 @@ function LockedFindings({
             onClick={onUnlock}
             className="bg-[var(--accent)] text-white px-5 py-2.5 text-sm font-semibold hover:opacity-90 transition-opacity"
           >
-            Unlock full audit — $400
+            Unlock full audit - $400
           </button>
         </div>
       </div>
@@ -500,10 +505,10 @@ export default function PreviewPage() {
                   <p className="text-label mb-2">HOW THIS WORKS</p>
                   <h2 className="text-section mb-4">We find the proof you&apos;re already sitting on</h2>
                   <p className="text-body-lg mb-4">
-                    Your website has gold buried in it — project counts, tolerances, on-time stats, specific outcomes. The problem? It&apos;s hidden in paragraph 3 of your About page while your homepage says &quot;quality service.&quot;
+                    Your website has gold buried in it - project counts, tolerances, on-time stats, specific outcomes. The problem? It&apos;s hidden in paragraph 3 of your About page while your homepage says &quot;quality service.&quot;
                   </p>
                   <p className="text-body text-[var(--muted-foreground)]">
-                    This audit finds those proof points and shows you exactly how to use them. The rewrites aren&apos;t generic marketing copy — they&apos;re built from YOUR numbers.
+                    This audit finds those proof points and shows you exactly how to use them. The rewrites aren&apos;t generic marketing copy - they&apos;re built from YOUR numbers.
                   </p>
                 </div>
               </div>
@@ -556,11 +561,12 @@ export default function PreviewPage() {
                     const isExpanded = expandedIssue === index
                     const isFeatured = index === 0
                     return (
-                      <div key={index} className={`action-card ${isFeatured ? 'featured' : ''}`}>
-                        <div
-                          className="flex flex-col md:flex-row md:items-start gap-4 cursor-pointer"
-                          onClick={() => setExpandedIssue(isExpanded ? null : index)}
-                        >
+                      <div
+                        key={index}
+                        className={`action-card ${isFeatured ? 'featured' : ''} cursor-pointer hover:border-[var(--accent)] transition-colors`}
+                        onClick={() => setExpandedIssue(isExpanded ? null : index)}
+                      >
+                        <div className="flex flex-col md:flex-row md:items-start gap-4">
                           <div className="flex items-center gap-4">
                             <span className="text-3xl font-bold text-[var(--accent)] shrink-0 w-12">{String(index + 1).padStart(2, '0')}</span>
                             {isFeatured && (
@@ -581,52 +587,84 @@ export default function PreviewPage() {
                             <p className="text-body text-[var(--muted-foreground)]">{issue.description}</p>
                           </div>
                         </div>
-                        <div className={`overflow-hidden transition-all duration-200 ease-in-out ${isExpanded ? 'max-h-[2000px] opacity-100 mt-6 pt-6 border-t-2 border-[var(--border)]' : 'max-h-0 opacity-0'}`}>
-                          {/* All issues on Overview are visible - show severity-based context */}
-                          <div className="mb-4">
-                            <div className={`p-4 rounded border-l-4 ${
-                              issue.severity === 'critical'
-                                ? 'bg-red-50 border-red-500'
-                                : issue.severity === 'warning'
-                                ? 'bg-amber-50 border-amber-500'
-                                : 'bg-blue-50 border-blue-500'
-                            }`}>
-                              <p className="text-sm text-[var(--foreground)] mb-2">
-                                <strong>Why this matters:</strong> {
-                                  issue.severity === 'critical'
-                                    ? 'This is actively hurting your conversion rate. Visitors are leaving because of this issue.'
-                                    : issue.severity === 'warning'
-                                    ? 'This creates friction in the buyer journey. Fixing it will noticeably improve engagement.'
-                                    : 'This is a refinement opportunity that can improve your competitive positioning.'
-                                }
+                        <div className={`overflow-hidden transition-all duration-200 ease-in-out ${isExpanded ? 'max-h-[5000px] opacity-100 mt-6 pt-6 border-t-2 border-[var(--border)]' : 'max-h-0 opacity-0'}`}>
+                          {/* Show ALL findings attached to this issue (up to 5) */}
+                          {issue.findings && issue.findings.length > 0 ? (
+                            <div className="mb-6">
+                              <p className="text-xs font-bold text-[var(--accent)] mb-4 uppercase tracking-wide">
+                                Copy-paste fixes from your site ({issue.findings.length} option{issue.findings.length !== 1 ? 's' : ''}):
                               </p>
-                              <p className="text-sm text-[var(--muted-foreground)] mb-3">
-                                {issue.severity === 'critical'
-                                  ? 'Address this within 30 days for meaningful improvement.'
-                                  : issue.severity === 'warning'
-                                  ? 'Plan to address this within 60 days.'
-                                  : 'Address after higher-priority items are complete.'}
-                              </p>
-                              {/* Impact statement - qualitative, not fake percentages */}
-                              <p className="text-xs font-medium text-[var(--accent)]">
-                                {issue.severity === 'critical'
-                                  ? '⚡ High-impact fix — address this first'
-                                  : issue.severity === 'warning'
-                                  ? '📋 Medium-impact fix — schedule this soon'
-                                  : '✨ Polish item — address when time permits'}
-                              </p>
+                              <div className="space-y-6">
+                                {issue.findings.map((finding, findingIndex) => (
+                                  <div key={findingIndex} className="border-2 border-[var(--border)] rounded-lg overflow-hidden">
+                                    <div className="bg-[var(--muted)] px-4 py-2 border-b border-[var(--border)]">
+                                      <span className="text-xs font-bold text-[var(--muted-foreground)]">
+                                        Option {findingIndex + 1}
+                                      </span>
+                                    </div>
+                                    <div className="grid md:grid-cols-2 gap-0">
+                                      <div className="p-4 bg-red-50 border-r border-[var(--border)]">
+                                        <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT - on your site</p>
+                                        <p className="text-sm text-[var(--foreground)]">{finding.phrase}</p>
+                                        <p className="text-xs text-[var(--muted-foreground)] mt-2">Found: {finding.location}</p>
+                                      </div>
+                                      <div className="p-4 bg-green-50">
+                                        <div className="flex justify-between items-start gap-2 mb-2">
+                                          <p className="text-xs font-bold text-green-600">✓ SUGGESTED REWRITE</p>
+                                          <button
+                                            onClick={async (e) => {
+                                              e.stopPropagation()
+                                              await navigator.clipboard.writeText(finding.rewrite)
+                                              const btn = e.currentTarget
+                                              btn.textContent = '✓ Copied'
+                                              setTimeout(() => { btn.textContent = 'Copy' }, 1500)
+                                            }}
+                                            className="text-xs px-2 py-0.5 bg-white border border-green-300 rounded hover:bg-green-100 transition-colors text-green-700 font-medium"
+                                          >
+                                            Copy
+                                          </button>
+                                        </div>
+                                        <p className="text-sm text-[var(--foreground)]">{finding.rewrite}</p>
+                                      </div>
+                                    </div>
+                                    <div className="p-3 bg-[var(--muted)] border-t border-[var(--border)]">
+                                      <p className="text-sm text-[var(--foreground)]">
+                                        <strong>Why this matters:</strong> {finding.problem}
+                                      </p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
-                            <p className="text-xs text-[var(--muted-foreground)] mt-3">
-                              The full audit shows exactly where this appears on your site with copy-paste replacement text.
-                            </p>
-                          </div>
+                          ) : (
+                            <div className="mb-4">
+                              <div className={`p-4 rounded border-l-4 ${
+                                issue.severity === 'critical'
+                                  ? 'bg-red-50 border-red-500'
+                                  : issue.severity === 'warning'
+                                  ? 'bg-amber-50 border-amber-500'
+                                  : 'bg-blue-50 border-blue-500'
+                              }`}>
+                                <p className="text-sm text-[var(--foreground)] mb-2">
+                                  <strong>Why this matters:</strong> {
+                                    issue.severity === 'critical'
+                                      ? 'This is actively hurting your conversion rate. Visitors are leaving because of this issue.'
+                                      : issue.severity === 'warning'
+                                      ? 'This creates friction in the buyer journey. Fixing it will noticeably improve engagement.'
+                                      : 'This is a refinement opportunity that can improve your competitive positioning.'
+                                  }
+                                </p>
+                                <p className="text-sm text-[var(--muted-foreground)]">
+                                  {issue.severity === 'critical'
+                                    ? 'Address this within 30 days for meaningful improvement.'
+                                    : issue.severity === 'warning'
+                                    ? 'Plan to address this within 60 days.'
+                                    : 'Address after higher-priority items are complete.'}
+                                </p>
+                              </div>
+                            </div>
+                          )}
                           <div className="flex items-center gap-4">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleUnlock() }}
-                              className="bg-[var(--accent)] text-white px-5 py-2.5 text-sm font-semibold hover:opacity-90 transition-opacity"
-                            >
-                              Get copy-paste fixes — $400
-                            </button>
                             <button
                               onClick={(e) => { e.stopPropagation(); setExpandedIssue(null) }}
                               className="text-sm text-[var(--muted-foreground)] hover:text-[var(--accent)] font-medium"
@@ -703,8 +741,8 @@ export default function PreviewPage() {
                   <h2 className="text-2xl md:text-3xl font-bold mb-8 text-center">Get your complete audit for $400</h2>
                   <div className="grid md:grid-cols-2 gap-4 mb-8">
                     <div className="p-4 bg-white/10 backdrop-blur rounded border border-white/20">
-                      <p className="font-bold text-white mb-1">📄 Ready-to-paste copy</p>
-                      <p className="text-sm text-white/80">15-20 rewrites built from YOUR proof points</p>
+                      <p className="font-bold text-white mb-1">📄 Copy-paste rewrites</p>
+                      <p className="text-sm text-white/80">Specific replacement copy for every issue found</p>
                     </div>
                     <div className="p-4 bg-white/10 backdrop-blur rounded border border-white/20">
                       <p className="font-bold text-white mb-1">📊 Complete score breakdown</p>
@@ -715,8 +753,8 @@ export default function PreviewPage() {
                       <p className="text-sm text-white/80">Gold buried on your site, surfaced and ready</p>
                     </div>
                     <div className="p-4 bg-white/10 backdrop-blur rounded border border-white/20">
-                      <p className="font-bold text-white mb-1">🔧 Self-implementation guide</p>
-                      <p className="text-sm text-white/80">Step-by-step for any platform. No dev needed.</p>
+                      <p className="font-bold text-white mb-1">📍 Page-by-page breakdown</p>
+                      <p className="text-sm text-white/80">Every page analyzed with exact locations</p>
                     </div>
                   </div>
                   <div className="text-center">
@@ -725,7 +763,7 @@ export default function PreviewPage() {
                       disabled={isCheckingOut}
                       className="bg-white text-[var(--accent)] px-10 py-4 text-lg font-bold hover:bg-white/90 transition-all shadow-lg disabled:opacity-50"
                     >
-                      {isCheckingOut ? 'Starting checkout...' : 'Unlock full audit — $400'}
+                      {isCheckingOut ? 'Starting checkout...' : 'Unlock full audit - $400'}
                     </button>
                     <p className="text-xs text-white/60 mt-4">
                       One-time payment. No subscription. Instant access.
@@ -764,7 +802,7 @@ export default function PreviewPage() {
                   <h3 className="text-subsection mb-2">The 5-second test</h3>
                   <p className="text-body">
                     Your prospects open 10 tabs. You have 5 seconds to answer: &quot;Is this for me?&quot; If they can&apos;t
-                    immediately see what you do, who you serve, and why you&apos;re different—they close the tab.
+                    immediately see what you do, who you serve, and why you&apos;re different - they close the tab.
                   </p>
                 </div>
                 <div className="grid md:grid-cols-2 gap-8 mb-8">
@@ -794,28 +832,69 @@ export default function PreviewPage() {
                 </div>
                 <div>
                   <h3 className="text-subsection mb-4">What to do</h3>
-                  {/* Unlocked teaser for first impression clarity */}
-                  {preview.teaserFinding ? (
-                    <div className="mb-6">
-                      <p className="text-xs font-bold text-[var(--accent)] mb-3">EXAMPLE FIX FROM YOUR SITE:</p>
-                      <div className="grid md:grid-cols-2 gap-4">
-                        <div className="p-3 bg-red-50 border-l-4 border-red-400">
-                          <p className="text-xs font-bold text-red-600 mb-1">❌ CURRENT</p>
-                          <p className="text-sm italic text-[var(--foreground)]">&quot;{preview.teaserFinding.phrase}&quot;</p>
+                  {/* FULLY UNLOCKED - show all first impression findings */}
+                  {preview.topIssues[0]?.findings && preview.topIssues[0].findings.length > 0 ? (
+                    <div className="space-y-4">
+                      <p className="text-xs font-bold text-[var(--accent)] uppercase tracking-wide">
+                        Copy-paste fixes for first impression ({preview.topIssues[0].findings.length} option{preview.topIssues[0].findings.length !== 1 ? 's' : ''}):
+                      </p>
+                      {preview.topIssues[0].findings.slice(0, 3).map((finding, idx) => (
+                        <div key={idx} className="border-2 border-[var(--border)] rounded-lg overflow-hidden">
+                          <div className="grid md:grid-cols-2 gap-0">
+                            <div className="p-4 bg-red-50 border-r border-[var(--border)]">
+                              <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT</p>
+                              <p className="text-sm text-[var(--foreground)]">{finding.phrase}</p>
+                              <p className="text-xs text-[var(--muted-foreground)] mt-2">Found: {finding.location}</p>
+                            </div>
+                            <div className="p-4 bg-green-50">
+                              <div className="flex justify-between items-start gap-2 mb-2">
+                                <p className="text-xs font-bold text-green-600">✓ REWRITE</p>
+                                <button
+                                  onClick={async () => {
+                                    await navigator.clipboard.writeText(finding.rewrite)
+                                  }}
+                                  className="text-xs px-2 py-0.5 bg-white border border-green-300 rounded hover:bg-green-100 transition-colors text-green-700 font-medium"
+                                >
+                                  Copy
+                                </button>
+                              </div>
+                              <p className="text-sm text-[var(--foreground)]">{finding.rewrite}</p>
+                            </div>
+                          </div>
+                          <div className="p-3 bg-[var(--muted)] border-t border-[var(--border)]">
+                            <p className="text-sm text-[var(--foreground)]">
+                              <strong>Why:</strong> {finding.problem}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                      <p className="text-sm text-[var(--accent)] font-medium">
+                        More fixes in the full audit →
+                      </p>
+                    </div>
+                  ) : preview.teaserFinding ? (
+                    <div className="border-2 border-[var(--border)] rounded-lg overflow-hidden">
+                      <div className="grid md:grid-cols-2 gap-0">
+                        <div className="p-4 bg-red-50 border-r border-[var(--border)]">
+                          <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT</p>
+                          <p className="text-sm text-[var(--foreground)]">{preview.teaserFinding.phrase}</p>
                           <p className="text-xs text-[var(--muted-foreground)] mt-2">Found: {preview.teaserFinding.location}</p>
                         </div>
-                        <div className="p-3 bg-green-50 border-l-4 border-green-500">
-                          <p className="text-xs font-bold text-green-600 mb-1">✓ REWRITE</p>
-                          <p className="text-sm text-[var(--foreground)]">&quot;{preview.teaserFinding.rewrite}&quot;</p>
+                        <div className="p-4 bg-green-50">
+                          <p className="text-xs font-bold text-green-600 mb-2">✓ REWRITE</p>
+                          <p className="text-sm text-[var(--foreground)]">{preview.teaserFinding.rewrite}</p>
                         </div>
                       </div>
-                      <p className="text-xs text-[var(--muted-foreground)] mt-3 p-2 bg-[var(--muted)] rounded">
-                        <strong>Why this matters:</strong> {preview.teaserFinding.problem}
-                      </p>
-                      <LockedFindings onUnlock={handleUnlock} />
+                      <div className="p-3 bg-[var(--muted)] border-t border-[var(--border)]">
+                        <p className="text-sm text-[var(--foreground)]">
+                          <strong>Why:</strong> {preview.teaserFinding.problem}
+                        </p>
+                      </div>
                     </div>
                   ) : (
-                    <LockedFindings onUnlock={handleUnlock} />
+                    <p className="text-body text-[var(--muted-foreground)]">
+                      Specific rewrites are included in your full audit.
+                    </p>
                   )}
                 </div>
               </div>
@@ -845,7 +924,7 @@ export default function PreviewPage() {
                     <h3 className="text-subsection mb-4">What this means for you</h3>
                     <p className="text-body">
                       Leading with features assumes visitors already know they need your solution and are
-                      comparison shopping. Many prospects are earlier in their journey—they have a
+                      comparison shopping. Many prospects are earlier in their journey - they have a
                       problem and aren&apos;t sure how to solve it.
                     </p>
                   </div>
@@ -869,7 +948,7 @@ export default function PreviewPage() {
                 <div className="methodology-box">
                   <h3 className="text-subsection mb-2">The &quot;more of these&quot; principle</h3>
                   <p className="text-body">
-                    Think of your best customers—the ones who pay on time, don&apos;t nickel-and-dime you,
+                    Think of your best customers - the ones who pay on time, don&apos;t nickel-and-dime you,
                     and refer others. Your website should speak directly to <em>that</em> company. When
                     you write for everyone, you connect with no one.
                   </p>
@@ -908,7 +987,7 @@ export default function PreviewPage() {
                   <h3 className="text-subsection mb-2">The &quot;how the hell&quot; question</h3>
                   <p className="text-body">
                     What would make your competitors ask: &quot;How the hell did they do that?&quot; Not aspirational
-                    claims—operational realities. The proof you already have but aren&apos;t using.
+                    claims - operational realities. The proof you already have but aren&apos;t using.
                   </p>
                 </div>
                 <div className="grid md:grid-cols-2 gap-8 mb-8">
@@ -926,7 +1005,7 @@ export default function PreviewPage() {
                     <h3 className="text-subsection mb-4">What this means for you</h3>
                     <p className="text-body">
                       When your messaging sounds like everyone else&apos;s, buyers compare on the only remaining
-                      variable: price. Your differentiation likely exists—it&apos;s just buried or unstated.
+                      variable: price. Your differentiation likely exists - it&apos;s just buried or unstated.
                     </p>
                   </div>
                 </div>
@@ -960,16 +1039,16 @@ export default function PreviewPage() {
                       Your trust signals exist but aren&apos;t positioned for maximum impact.
                     </p>
                     <ul className="space-y-2 text-body">
-                      <li>• Certifications buried in footer or About page</li>
-                      <li>• Testimonials hidden or absent from homepage</li>
-                      <li>• No quantified results or metrics visible</li>
+                      <li className="flex items-start gap-2"><span className="text-[var(--accent)]">→</span> Certifications buried in footer or About page</li>
+                      <li className="flex items-start gap-2"><span className="text-[var(--accent)]">→</span> Testimonials hidden or absent from homepage</li>
+                      <li className="flex items-start gap-2"><span className="text-[var(--accent)]">→</span> No quantified results or metrics visible</li>
                     </ul>
                   </div>
                   <div>
                     <h3 className="text-subsection mb-4">What this means for you</h3>
                     <p className="text-body">
                       Visitors need to trust you before they&apos;ll contact you. When proof is hidden, they either
-                      leave or treat you as a commodity—comparing on price alone.
+                      leave or treat you as a commodity - comparing on price alone.
                     </p>
                   </div>
                 </div>
@@ -1003,8 +1082,8 @@ export default function PreviewPage() {
                   <div>
                     <h3 className="text-subsection mb-4">What this means for you</h3>
                     <p className="text-body">
-                      You only capture prospects who are already ready to buy. Everyone else—including great
-                      fits who need more time—has no way to stay engaged.
+                      You only capture prospects who are already ready to buy. Everyone else - including great
+                      fits who need more time - has no way to stay engaged.
                     </p>
                   </div>
                 </div>
@@ -1090,19 +1169,16 @@ export default function PreviewPage() {
                   <h3 className="text-subsection mb-2">Why this matters</h3>
                   <p className="text-body">
                     When buyers compare you to competitors, they&apos;re looking for differentiation. If your messaging
-                    sounds the same, they default to price. This analysis shows how you stack up—and what to steal.
+                    sounds the same, they default to price. This analysis shows how you stack up - and what to steal.
                   </p>
                 </div>
 
-                {/* No competitor data yet - show prompt */}
+                {/* No competitor data - show static message */}
                 {!hasCompetitorData && (
-                  <div className="p-8 bg-[var(--muted)] border-2 border-[var(--border)] rounded text-center mb-8">
-                    <p className="text-lg font-semibold text-[var(--foreground)] mb-2">Competitor analysis in progress</p>
-                    <p className="text-sm text-[var(--muted-foreground)] mb-4">
-                      We&apos;re identifying and analyzing your top competitors. This usually takes a minute or two.
-                    </p>
-                    <p className="text-xs text-[var(--muted-foreground)]">
-                      Refresh the page in a moment to see results.
+                  <div className="p-8 bg-amber-50 border-2 border-amber-200 rounded text-center mb-8">
+                    <p className="text-lg font-semibold text-amber-900 mb-2">Competitor analysis not available</p>
+                    <p className="text-sm text-amber-700">
+                      We weren&apos;t able to gather competitor data for this analysis. This may happen if competitor sites block external access.
                     </p>
                   </div>
                 )}
@@ -1278,7 +1354,7 @@ export default function PreviewPage() {
                         disabled={isCheckingOut}
                         className="bg-[var(--accent)] text-white px-6 py-3 font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
                       >
-                        {isCheckingOut ? 'Starting checkout...' : 'Unlock competitive analysis — $400'}
+                        {isCheckingOut ? 'Starting checkout...' : 'Unlock competitive analysis - $400'}
                       </button>
                       <p className="text-xs text-[var(--muted-foreground)] mt-3">
                         Included with your full audit
@@ -1339,7 +1415,7 @@ export default function PreviewPage() {
               'Commodity phrase frequency',
               'Competitive positioning statements',
             ],
-            insight: 'When you sound like everyone else, buyers compare on price. Your differentiators likely exist—they\'re just buried or unstated.',
+            insight: 'When you sound like everyone else, buyers compare on price. Your differentiators likely exist - they\'re just buried or unstated.',
           },
           'customerClarity': {
             factors: [
@@ -1366,7 +1442,7 @@ export default function PreviewPage() {
               'Third-party validation (certifications, awards)',
               'Case study and testimonial depth',
             ],
-            insight: 'Trust signals exist on most sites—they\'re just buried. Moving proof to visible locations dramatically increases conversion.',
+            insight: 'Trust signals exist on most sites - they\'re just buried. Moving proof to visible locations dramatically increases conversion.',
           },
           'buttonClarity': {
             factors: [
@@ -1418,7 +1494,7 @@ export default function PreviewPage() {
                 <ul className="space-y-2 mb-6">
                   {breakdown.factors.map((factor, i) => (
                     <li key={i} className="flex items-start gap-2 text-sm text-[var(--muted-foreground)]">
-                      <span className="text-[var(--accent)]">•</span>
+                      <span className="text-[var(--accent)]">→</span>
                       {factor}
                     </li>
                   ))}

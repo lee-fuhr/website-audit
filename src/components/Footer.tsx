@@ -1,6 +1,6 @@
 'use client'
 
-const VERSION = '0.4.0'
+import { VERSION } from '@/lib/version'
 
 interface FooterProps {
   context?: string // e.g., "Audit for Acme Corp"

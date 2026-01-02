@@ -41,6 +41,81 @@ Homepage → Enter URL → Processing (1-2 min) → Results ready reveal → Fre
 
 ---
 
+## Design rules (MUST FOLLOW)
+
+These rules apply to ALL Lee Fuhr Inc tools. Enforce everywhere.
+
+### Content gating
+
+| View | Free preview | Paid |
+|------|--------------|------|
+| **Overview** | FULLY FREE - no gating whatsoever | Same as preview |
+| Your message | Locked content | Full content |
+| Your audience | Locked content | Full content |
+| Building trust | Locked content | Full content |
+| Copy to use | Locked content | Full content |
+| Competitors | Full content (if available) | Same |
+
+**CRITICAL:** The Overview page looks IDENTICAL on preview and paid. We give away good actionable stuff.
+
+### Free preview content (MANDATORY)
+
+The free preview MUST show REAL VALUE, not generic advice. This is non-negotiable.
+
+**Overview page must include:**
+- Real commodity score with breakdown
+- ALL top priority issues with ACTUAL COPY SUGGESTIONS (before/after rewrites)
+- Voice analysis summary
+- Copy buttons on all suggested rewrites
+
+**First impression clarity section must include:**
+- Full methodology explanation
+- ACTUAL COPY SUGGESTIONS with before/after (not "Replace with specific proof")
+- Real findings from their site
+
+**What "copy suggestion" means:**
+- ❌ WRONG: "Replace with specific proof or unique approach"
+- ❌ WRONG: "Use more specific language"
+- ✓ RIGHT: "We're driven by precision - delivering ±0.001" tolerance on every part"
+- ✓ RIGHT: "47 machinists. Average tenure: 12 years. When you need parts right the first time, that experience matters."
+
+The AI analyzer MUST generate actual copy, not generic instructions. If it can't find specific proof points, it should craft copy based on what's typical for the industry.
+
+### Honesty in marketing claims
+
+**NEVER claim features that don't exist:**
+- Don't say "Self-implementation guide" if there's no guide
+- Don't say "15-20 rewrites" if we only generate 5
+- Every feature claimed in CTAs must actually be delivered
+
+### Results page completeness
+
+The results page (`/preview/[id]` and `/results/[id]`) should NEVER show "in progress" states. All analysis must be complete before showing results. If competitor analysis isn't ready, don't show a spinner - show nothing or "No competitor data" static message.
+
+### Typography
+
+- **No em dashes (—)** - Use " - " (space-hyphen-space) or rewrite the sentence
+- **Quotes are for actual quotes** - Don't use quotation marks for directions, instructions, or emphasis. Only for actual quoted speech/text.
+
+### Icons and bullets
+
+- **Use Streamline icons** - Not text bullets, not emoji bullets
+- **Consistency** - Same icon style (1px stroke, rounded caps) everywhere
+- **Arrow icon** - Use simple arrow (`→`) or chevron for list items instead of bullets
+
+### Interactive elements
+
+- **Clickable cards** - If a card/div is clickable, the ENTIRE card should be clickable, not just the text inside
+- **Hover states** - All clickable elements need hover states
+- **Focus states** - Keyboard navigation must work
+
+### Version display
+
+- Version number in footer of ALL pages (landing, processing, preview, results, sample)
+- Format: `v0.X.Y` in small monospace text
+
+---
+
 ## Design decisions
 
 ### Layout: Side nav
@@ -254,6 +329,14 @@ Response: `{ success: true, checkoutUrl: string }`
 ---
 
 ## Changelog
+
+### 0.7.0 (2026-01-01)
+- **CRITICAL FIX:** All 10 top priorities now show copy-paste rewrites (not just first 3)
+- **Data architecture change:** Findings now attached DIRECTLY to each topIssue (not separate arrays)
+- **Multiple rewrite options:** Each issue shows up to 5 rewrite suggestions
+- **Industry detection:** Fallback analyzer detects SaaS/manufacturing/services and uses appropriate examples
+- **First Impression Clarity:** Fully unlocked with real findings (removed LockedFindings component)
+- **Competitor merge logic:** PATCH endpoint now merges instead of overwrites
 
 ### 1.0.0 (2025-12-31)
 - PRD updated to document shared component usage

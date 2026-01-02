@@ -47,13 +47,13 @@ const auditData = {
         { factor: "Memorable hook", score: 1, max: 2, note: "Nothing sticky that visitors will remember" },
       ],
       evidence: [
-        "Homepage uses: 'quality,' 'service,' 'trusted partner'—same as every competitor",
-        "About page: 'Our average machinist has been with us 12 years'—THIS is a differentiator but hidden",
+        "Homepage uses: 'quality,' 'service,' 'trusted partner' - same as every competitor",
+        "About page: 'Our average machinist has been with us 12 years' - THIS is a differentiator but hidden",
         "No comparison to alternatives or acknowledgment of other options",
         "No single memorable phrase or tagline",
       ],
       howToImprove: [
-        "Surface the 12-year tenure stat to homepage—this proves stability competitors can't match",
+        "Surface the 12-year tenure stat to homepage - this proves stability competitors can't match",
         "Remove or replace all instances of 'quality' and 'service' with specific claims",
         "Create a 'Why Acme' section that answers: 'How the hell do they do that?'",
       ],
@@ -70,7 +70,7 @@ const auditData = {
         { factor: "Self-selection enabled", score: 1, max: 2, note: "Can't tell if you're right for them" },
       ],
       evidence: [
-        "Homepage: 'aerospace, automotive, medical, and more'—this is everyone",
+        "Homepage: 'aerospace, automotive, medical, and more' - this is everyone",
         "85% of testimonials are from medical device companies but homepage doesn't mention them",
         "No FDA, ISO 13485, or biocompatibility language on homepage despite serving medical",
         "A prospect can't quickly determine if they're your type of customer",
@@ -116,7 +116,7 @@ const auditData = {
         { factor: "Visual proof", score: 2, max: 2, note: "Facility photos, team photos present" },
       ],
       evidence: [
-        "ISO 9001 and ISO 13485 certifications—but both are footer only",
+        "ISO 9001 and ISO 13485 certifications - but both are footer only",
         "Client logos in footer, testimonials on About page only",
         "No metrics: defect rates, on-time %, parts produced, years in business",
         "Good facility and team photography throughout",
@@ -139,13 +139,13 @@ const auditData = {
         { factor: "Strategic placement", score: 2, max: 2, note: "Buttons present on all pages" },
       ],
       evidence: [
-        "Every page: 'Contact Us' button—no specificity",
+        "Every page: 'Contact Us' button - no specificity",
         "No mention of response time, quote process, or what happens next",
         "No lower-commitment options (download, video, sample request)",
         "Buttons are visible and well-placed throughout",
       ],
       howToImprove: [
-        "Primary button: 'Get a Quote in 24 Hours'—sets specific expectation",
+        "Primary button: 'Get a Quote in 24 Hours' - sets specific expectation",
         "Secondary button: 'See Our Work' or 'Request Sample Parts'",
         "Add a low-commitment offer: capabilities PDF, facility tour video",
       ],
@@ -196,73 +196,111 @@ const auditData = {
     },
   ],
 
-  actions: [
+  // topIssues matches the preview/results data structure
+  topIssues: [
     {
-      priority: 1,
       title: "Rewrite your homepage headline with a specific outcome",
       description: "Replace 'Precision Manufacturing Solutions' with something only you can say. Lead with the result your customers get, not your capability.",
+      severity: 'critical' as const,
       effort: "easy" as const,
       featured: true,
       expandType: "headlines" as const,
+      findings: [
+        { phrase: "Precision Manufacturing Solutions", problem: "Generic headline that every competitor uses", rewrite: "Medical-grade precision for device manufacturers who can't afford defects", location: "Homepage headline", pageUrl: "/" },
+        { phrase: "Precision Manufacturing Solutions", problem: "Doesn't specify who you serve or why you're different", rewrite: "47 machinists. 12-year average tenure. Precision that compounds.", location: "Homepage headline", pageUrl: "/" },
+        { phrase: "Precision Manufacturing Solutions", problem: "Focuses on capability, not outcome", rewrite: "When your parts need to pass inspection the first time", location: "Homepage headline", pageUrl: "/" },
+      ],
     },
     {
-      priority: 2,
       title: "Add proof at the top of your homepage",
       description: "Move your ISO certification badge and one client testimonial to the top of your homepage (before visitors scroll). They need to trust you before they'll read further.",
+      severity: 'critical' as const,
       effort: "easy" as const,
       expandType: "trustbar" as const,
+      findings: [
+        { phrase: "[certifications in footer only]", problem: "Trust signals are hidden below the fold", rewrite: "ISO 13485 certified · 99.7% on-time delivery · Trusted by Medtronic, Boston Scientific, and 47 other device manufacturers", location: "Homepage - add above fold", pageUrl: "/" },
+        { phrase: "[no social proof visible]", problem: "Visitors can't quickly verify your claims", rewrite: "\"They've machined 2.3M parts for us. Zero recalls.\" - VP Engineering, Medtronic", location: "Homepage - add testimonial strip", pageUrl: "/" },
+      ],
     },
     {
-      priority: 3,
       title: "Define your ideal customer explicitly",
       description: "'Industrial clients' is too broad. Name the specific type of company, size, and situation where you're the obvious choice.",
+      severity: 'warning' as const,
       effort: "medium" as const,
       expandType: "customer" as const,
+      findings: [
+        { phrase: "We serve aerospace, automotive, medical, and more", problem: "Serving everyone means connecting with no one", rewrite: "Precision machining for FDA-regulated medical devices. 85% of our work is for device manufacturers who need tight tolerances and documented compliance.", location: "Homepage", pageUrl: "/" },
+        { phrase: "industrial clients", problem: "Vague audience naming", rewrite: "medical device companies at $5M-50M who need ISO 13485 compliance", location: "About page", pageUrl: "/about" },
+      ],
     },
     {
-      priority: 4,
       title: "Create a 'Why us' section with real differentiators",
       description: "Not 'quality' or 'service' - what would make your competitors say 'how the hell do they do that?'",
+      severity: 'warning' as const,
       effort: "medium" as const,
       expandType: "whyus" as const,
+      findings: [
+        { phrase: "committed to quality", problem: "Every competitor says this exact phrase", rewrite: "Last year: 847,000 parts shipped. 12 rejected. That's a 0.001% defect rate.", location: "Homepage", pageUrl: "/" },
+        { phrase: "trusted partner", problem: "Meaningless without proof", rewrite: "47 machinists. Average tenure: 12 years. When you need parts right the first time, that experience matters.", location: "Homepage", pageUrl: "/" },
+        { phrase: "excellent customer service", problem: "Generic claim with no specifics", rewrite: "When your prototype needs to ship Friday, call Mike directly. 6am-10pm.", location: "Services page", pageUrl: "/services" },
+      ],
     },
     {
-      priority: 5,
       title: "Develop 2 case studies with specific results",
       description: "Include the problem, your approach, and measurable outcomes. 'Reduced defect rate from 2.3% to 0.1%' beats 'delivered quality parts.'",
+      severity: 'warning' as const,
       effort: "medium" as const,
       expandType: "casestudy" as const,
+      findings: [
+        { phrase: "[no case studies present]", problem: "Missing the most effective B2B trust builder", rewrite: "How Boston Scientific reduced part defects by 73% after switching to us", location: "New case study page", pageUrl: "/case-studies" },
+      ],
     },
     {
-      priority: 6,
       title: "Rewrite your buttons with specific next steps",
       description: "Change 'Contact Us' to 'Get a quote in 24 hours' or 'Request sample parts.' Tell them exactly what happens when they click.",
+      severity: 'info' as const,
       effort: "easy" as const,
       expandType: "buttons" as const,
+      findings: [
+        { phrase: "Contact Us", problem: "Vague CTA with no expectation set", rewrite: "Get a quote in 24 hours →", location: "All pages - primary button", pageUrl: "/" },
+        { phrase: "Contact Us", problem: "Only high-commitment option available", rewrite: "Request sample parts → (low commitment alternative)", location: "Services pages", pageUrl: "/services" },
+      ],
     },
     {
-      priority: 7,
       title: "Add industry-specific landing pages",
       description: "Create dedicated pages for aerospace, medical, and automotive with tailored messaging for each vertical.",
+      severity: 'info' as const,
       effort: "hard" as const,
+      findings: [
+        { phrase: "[single generic services page]", problem: "Can't speak directly to specific industry pain points", rewrite: "Dedicated /medical-devices page with FDA language, compliance focus, and medical-specific case studies", location: "New page needed", pageUrl: "/services" },
+      ],
     },
     {
-      priority: 8,
       title: "Surface your best project photos on homepage",
       description: "Your project pages have specific machinery shots. Move 3-4 of the most impressive to your homepage hero or a 'Recent work' section.",
+      severity: 'info' as const,
       effort: "easy" as const,
+      findings: [
+        { phrase: "[stock imagery on homepage]", problem: "Generic photos don't build trust", rewrite: "Use the precision part photos from your Projects page in a homepage gallery", location: "Homepage hero section", pageUrl: "/" },
+      ],
     },
     {
-      priority: 9,
       title: "Add a 'How we work' process section",
       description: "Walk prospects through your process from quote to delivery. Reduces anxiety about what happens after they click 'Contact.'",
+      severity: 'info' as const,
       effort: "medium" as const,
+      findings: [
+        { phrase: "[no process explanation]", problem: "Visitors don't know what to expect", rewrite: "Step 1: Send your specs → Step 2: Quote in 24 hours → Step 3: Approval → Step 4: Production → Step 5: Delivery with documentation", location: "Homepage - add section", pageUrl: "/" },
+      ],
     },
     {
-      priority: 10,
       title: "Create a pricing guidance page",
       description: "You don't need to list prices. Just explain how pricing works, what affects cost, and what to expect. This filters tire-kickers and builds trust.",
+      severity: 'info' as const,
       effort: "medium" as const,
+      findings: [
+        { phrase: "[no pricing information]", problem: "Prospects wonder if they can afford you, leave without asking", rewrite: "Pricing depends on: material, tolerances, quantity, lead time. Typical projects range from $X-$Y. Get a quote in 24 hours.", location: "New pricing page", pageUrl: "/pricing" },
+      ],
     },
   ],
 
@@ -277,8 +315,8 @@ const auditData = {
   <span>[Social proof, e.g., Trusted by XX companies in your industry]</span>
 </div>`,
     testimonial: {
-      quote: "[Pick your strongest customer quote—one that mentions a specific result or problem you solved. If you don't have one, ask your best customer for a 2-sentence testimonial.]",
-      attribution: "— [Title], [Company name]",
+      quote: "[Pick your strongest customer quote - one that mentions a specific result or problem you solved. If you don't have one, ask your best customer for a 2-sentence testimonial.]",
+      attribution: "- [Title], [Company name]",
     },
   },
 
@@ -286,7 +324,7 @@ const auditData = {
   customerDefinition: {
     intro: "Based on your testimonials and client list, here's a draft ideal customer profile. Refine each field to match your reality:",
     definition: {
-      companyType: "[Based on your testimonials: most seem to be medical device manufacturers—is that accurate? What type specifically?]",
+      companyType: "[Based on your testimonials: most seem to be medical device manufacturers - is that accurate? What type specifically?]",
       size: "[What's the typical revenue range and employee count of your best customers?]",
       situation: "[What problem or situation triggers them to look for you? What pain brought your best customers to you?]",
       whyYou: "[Why do they choose YOU over competitors? What do they value most?]",
@@ -296,7 +334,7 @@ const auditData = {
 
   // Why us differentiators
   whyUsCopy: {
-    intro: "We found this on your About page: 'Our average machinist has been with us 12 years.' That's a real differentiator—most shops have high turnover. Here's how to turn hidden proof points like this into a 'Why Us' section:",
+    intro: "We found this on your About page: 'Our average machinist has been with us 12 years.' That's a real differentiator - most shops have high turnover. Here's how to turn hidden proof points like this into a 'Why Us' section:",
     differentiators: [
       {
         headline: "[X] machinists. [X]-year average tenure.",
@@ -310,7 +348,7 @@ const auditData = {
       },
       {
         headline: "[Your quality metric]",
-        subtext: "[Defect rate, rejection rate, first-pass yield—whatever you track]",
+        subtext: "[Defect rate, rejection rate, first-pass yield - whatever you track]",
         note: "Template: 'Last year: [X] parts shipped. [X] rejected. That's [X]% defect rate.'",
       },
       {
@@ -334,7 +372,7 @@ const auditData = {
         "[X]% on-time delivery rate",
         "[Specific outcome: passed FDA audit / hit launch date / etc.]",
       ],
-      quote: "\"[Client quote about specific result or experience]\" — [Name], [Title], [Company]",
+      quote: "\"[Client quote about specific result or experience]\" - [Name], [Title], [Company]",
     },
   },
 
@@ -699,7 +737,7 @@ export default function SamplePage() {
   // No-op for sample mode (LockedFindings won't render since isPaid=true)
   const handleUnlock = () => {}
 
-  const easyWins = auditData.actions.filter(a => a.effort === 'easy')
+  const easyWins = auditData.topIssues.filter(a => a.effort === 'easy')
 
   // Handle view changes with scroll to top
   const handleViewChange = (view: ViewType) => {
@@ -730,8 +768,8 @@ export default function SamplePage() {
     const newState = expandedAction === priority ? null : priority
     setExpandedAction(newState)
     if (newState !== null) {
-      const action = auditData.actions.find(a => a.priority === priority)
-      window.plausible?.('Action Expanded', { props: { action: action?.title || `Priority ${priority}` } })
+      const issue = auditData.topIssues[priority - 1]
+      window.plausible?.('Action Expanded', { props: { action: issue?.title || `Priority ${priority}` } })
     }
   }
 
@@ -748,7 +786,7 @@ export default function SamplePage() {
       {/* Sample banner */}
       <div className="bg-[var(--accent)] text-center py-3 px-4 fixed top-0 left-0 right-0 z-50 print:hidden">
         <p className="text-white text-sm font-semibold">
-          SAMPLE REPORT — This is what the full $400 analysis looks like ·{' '}
+          SAMPLE REPORT - This is what the full $400 analysis looks like ·{' '}
           <Link href="/" className="underline hover:no-underline">Analyze your site →</Link>
         </p>
       </div>
@@ -855,20 +893,22 @@ export default function SamplePage() {
             </p>
 
             <div className="grid gap-4">
-              {auditData.actions.map((action) => (
+              {auditData.topIssues.map((issue, index) => {
+                const priority = index + 1
+                return (
                 <div
-                  key={action.priority}
-                  className={`action-card ${action.featured ? 'featured' : ''}`}
+                  key={priority}
+                  className={`action-card ${issue.featured ? 'featured' : ''}`}
                 >
                   <div
                     className="flex flex-col md:flex-row md:items-start gap-4 cursor-pointer"
-                    onClick={() => handleActionExpand(action.priority)}
+                    onClick={() => handleActionExpand(priority)}
                   >
                     <div className="flex items-center gap-4">
                       <span className="text-3xl font-bold text-[var(--accent)] shrink-0 w-12">
-                        {String(action.priority).padStart(2, '0')}
+                        {String(priority).padStart(2, '0')}
                       </span>
-                      {action.featured && (
+                      {issue.featured && (
                         <span className="bg-[var(--accent)] text-white text-xs font-bold uppercase tracking-wider px-3 py-1">
                           Start here
                         </span>
@@ -876,28 +916,68 @@ export default function SamplePage() {
                     </div>
                     <div className="flex-1">
                       <div className="flex flex-wrap items-center gap-3 mb-2">
-                        <h3 className="text-subsection">{action.title}</h3>
-                        <span className={`effort-tag effort-${action.effort}`}>
-                          {action.effort === 'easy' && '🟢'}
-                          {action.effort === 'medium' && '🟡'}
-                          {action.effort === 'hard' && '🔴'}
-                          {action.effort}
+                        <h3 className="text-subsection">{issue.title}</h3>
+                        <span className={`effort-tag effort-${issue.effort}`}>
+                          {issue.effort === 'easy' && '🟢'}
+                          {issue.effort === 'medium' && '🟡'}
+                          {issue.effort === 'hard' && '🔴'}
+                          {issue.effort}
                         </span>
-                        {action.expandType && (
+                        {(issue.findings?.length > 0 || issue.expandType) && (
                           <span className="text-xs text-[var(--accent)] font-semibold">
-                            {expandedAction === action.priority ? '' : '↓ See copy you can use'}
+                            {expandedAction === priority ? '' : '↓ See copy you can use'}
                           </span>
                         )}
                       </div>
-                      <p className="text-body text-[var(--muted-foreground)]">{action.description}</p>
+                      <p className="text-body text-[var(--muted-foreground)]">{issue.description}</p>
                     </div>
                   </div>
 
-                  {/* Expanded content based on action type */}
-                  {action.expandType && (
-                    <div className={`overflow-hidden transition-all duration-200 ease-in-out ${expandedAction === action.priority ? 'max-h-[5000px] opacity-100 mt-6 pt-6 border-t-2 border-[var(--border)]' : 'max-h-0 opacity-0'}`}>
+                  {/* Expanded content - show findings first, then expandType bonus content */}
+                  {(issue.findings?.length > 0 || issue.expandType) && (
+                    <div className={`overflow-hidden transition-all duration-200 ease-in-out ${expandedAction === priority ? 'max-h-[5000px] opacity-100 mt-6 pt-6 border-t-2 border-[var(--border)]' : 'max-h-0 opacity-0'}`}>
+
+                      {/* Findings - matching preview page format */}
+                      {issue.findings && issue.findings.length > 0 && (
+                        <div className="mb-6">
+                          <p className="text-xs font-bold text-[var(--accent)] mb-4 uppercase tracking-wide">
+                            Copy-paste fixes ({issue.findings.length} option{issue.findings.length !== 1 ? 's' : ''}):
+                          </p>
+                          <div className="space-y-4">
+                            {issue.findings.map((finding, findingIndex) => (
+                              <div key={findingIndex} className="border-2 border-[var(--border)] rounded-lg overflow-hidden">
+                                <div className="grid md:grid-cols-2 gap-0">
+                                  <div className="p-4 bg-red-50 border-r border-[var(--border)]">
+                                    <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT</p>
+                                    <p className="text-sm text-[var(--foreground)]">{finding.phrase}</p>
+                                    <p className="text-xs text-[var(--muted-foreground)] mt-2">{finding.location}</p>
+                                  </div>
+                                  <div className="p-4 bg-green-50">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <p className="text-xs font-bold text-green-600">✓ SUGGESTED</p>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          navigator.clipboard.writeText(finding.rewrite)
+                                        }}
+                                        className="text-xs text-[var(--accent)] hover:underline font-semibold"
+                                      >
+                                        Copy →
+                                      </button>
+                                    </div>
+                                    <p className="text-sm font-medium text-[var(--foreground)]">{finding.rewrite}</p>
+                                    <p className="text-xs text-[var(--muted-foreground)] mt-2 italic">{finding.problem}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Additional expandType content (bonus detail) */}
                       {/* Headlines */}
-                      {action.expandType === 'headlines' && (
+                      {issue.expandType === 'headlines' && (
                         <>
                           <h4 className="text-subsection mb-4">10 headlines you could use today</h4>
                           <div className="grid gap-3">
@@ -912,7 +992,7 @@ export default function SamplePage() {
                       )}
 
                       {/* Credibility strip */}
-                      {action.expandType === 'trustbar' && (
+                      {issue.expandType === 'trustbar' && (
                         <>
                           <h4 className="text-subsection mb-4">{auditData.trustBarCopy.intro}</h4>
                           <div className="bg-[var(--muted)] p-4 font-mono text-sm mb-6 overflow-x-auto">
@@ -927,7 +1007,7 @@ export default function SamplePage() {
                       )}
 
                       {/* Ideal Customer */}
-                      {action.expandType === 'customer' && (
+                      {issue.expandType === 'customer' && (
                         <>
                           <h4 className="text-subsection mb-4">{auditData.customerDefinition.intro}</h4>
                           <div className="grid gap-4 mb-6">
@@ -956,7 +1036,7 @@ export default function SamplePage() {
                       )}
 
                       {/* Why Us */}
-                      {action.expandType === 'whyus' && (
+                      {issue.expandType === 'whyus' && (
                         <>
                           <h4 className="text-subsection mb-4">{auditData.whyUsCopy.intro}</h4>
                           <div className="grid gap-4">
@@ -974,7 +1054,7 @@ export default function SamplePage() {
                       )}
 
                       {/* Case Study Template */}
-                      {action.expandType === 'casestudy' && (
+                      {issue.expandType === 'casestudy' && (
                         <>
                           <h4 className="text-subsection mb-4">{auditData.caseStudyTemplate.intro}</h4>
                           <div className="bg-white p-6 border-2 border-[var(--border)] space-y-4">
@@ -1006,7 +1086,7 @@ export default function SamplePage() {
                       )}
 
                       {/* Buttons */}
-                      {action.expandType === 'buttons' && (
+                      {issue.expandType === 'buttons' && (
                         <>
                           <h4 className="text-subsection mb-4">{auditData.buttonAlternatives.intro}</h4>
                           <div className="grid md:grid-cols-2 gap-6">
@@ -1040,7 +1120,7 @@ export default function SamplePage() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
-                          handleActionExpand(action.priority)
+                          handleActionExpand(priority)
                         }}
                         className="mt-6 pt-4 border-t border-[var(--border)] w-full text-center text-sm text-[var(--accent)] hover:text-[var(--accent)]/80 font-semibold"
                       >
@@ -1049,7 +1129,7 @@ export default function SamplePage() {
                     </div>
                   )}
                 </div>
-              ))}
+              )})}
             </div>
           </div>
         </section>
@@ -1060,7 +1140,7 @@ export default function SamplePage() {
             <h2 className="text-section mb-4">Where you stand</h2>
             <div className="callout mb-8">
               <p className="text-body">
-                <strong>A note on scoring:</strong> A perfect 10 is nearly theoretical—it would mean flawless messaging with zero room for improvement. That's not the goal. These scores are a <strong>prioritization rubric</strong> to show where changes will have the most impact. Focus on the lowest scores first.
+                <strong>A note on scoring:</strong> A perfect 10 is nearly theoretical - it would mean flawless messaging with zero room for improvement. That's not the goal. These scores are a <strong>prioritization rubric</strong> to show where changes will have the most impact. Focus on the lowest scores first.
               </p>
             </div>
             <p className="text-body-lg mb-8 max-w-3xl">
@@ -1139,7 +1219,7 @@ export default function SamplePage() {
               <h3 className="text-subsection mb-2">The 5-second test</h3>
               <p className="text-body">
                 Your prospects open 10 tabs. You have 5 seconds to answer: "Is this for me?" If they can't
-                immediately see what you do, who you serve, and why you're different—they close the tab.
+                immediately see what you do, who you serve, and why you're different - they close the tab.
                 This analysis applies the same framework I use with $5M+ manufacturing clients to diagnose
                 exactly where that clarity breaks down.
               </p>
@@ -1220,7 +1300,7 @@ export default function SamplePage() {
                 Most industrial websites lead with "Our Services" or "Our Products." Wrong order. Prospects
                 need to feel understood before they'll listen to your solution. The winning sequence:
                 <strong> Pain → Outcome → Proof → Features → Next Step</strong>. This analysis reveals
-                where your messaging breaks that sequence—and exactly how to fix it.
+                where your messaging breaks that sequence - and exactly how to fix it.
               </p>
             </div>
 
@@ -1244,7 +1324,7 @@ export default function SamplePage() {
                 <h3 className="text-subsection mb-4">What this means for you</h3>
                 <p className="text-body mb-4">
                   Leading with features assumes visitors already know they need CNC machining and are
-                  comparison shopping. But many prospects are earlier in their journey—they have a
+                  comparison shopping. But many prospects are earlier in their journey - they have a
                   problem and aren't sure how to solve it.
                 </p>
                 <p className="text-body">
@@ -1293,10 +1373,10 @@ export default function SamplePage() {
             <div className="methodology-box">
               <h3 className="text-subsection mb-2">The "more of these" principle</h3>
               <p className="text-body">
-                Think of your best customers—the ones who pay on time, don't nickel-and-dime you,
+                Think of your best customers - the ones who pay on time, don't nickel-and-dime you,
                 and refer others. Your website should speak directly to <em>that</em> company. When
                 you write for everyone, you connect with no one. This analysis identifies who your
-                site is currently attracting—and whether that matches who you actually want.
+                site is currently attracting - and whether that matches who you actually want.
               </p>
             </div>
 
@@ -1307,7 +1387,7 @@ export default function SamplePage() {
                 <h3 className="text-subsection mb-4">What we found</h3>
                 <p className="text-body mb-4">
                   Your site speaks to "industrial clients" and "companies in aerospace, automotive,
-                  medical, and more." This is everyone—which means it's no one.
+                  medical, and more." This is everyone - which means it's no one.
                 </p>
                 <div className="callout mt-4">
                   <p className="text-body">
@@ -1321,7 +1401,7 @@ export default function SamplePage() {
                 <h3 className="text-subsection mb-4">What this means for you</h3>
                 <p className="text-body mb-4">
                   A medical device engineer looking for a machining partner sees "aerospace, automotive,
-                  medical" and wonders if you really understand their world—FDA documentation, biocompatibility
+                  medical" and wonders if you really understand their world - FDA documentation, biocompatibility
                   requirements, the stakes of a failed part.
                 </p>
                 <p className="text-body">
@@ -1363,9 +1443,9 @@ export default function SamplePage() {
               <h3 className="text-subsection mb-2">The "how the hell" question</h3>
               <p className="text-body">
                 What would make your competitors ask: "How the hell did they do that?" Not aspirational
-                claims—operational realities. The 12-year average tenure. The 0.02% defect rate.
+                claims - operational realities. The 12-year average tenure. The 0.02% defect rate.
                 The custom fixturing. This analysis hunts for the proof you already have but aren't
-                using—and shows you exactly where to put it.
+                using - and shows you exactly where to put it.
               </p>
             </div>
 
@@ -1392,7 +1472,7 @@ export default function SamplePage() {
                 <h3 className="text-subsection mb-4">What this means for you</h3>
                 <p className="text-body mb-4">
                   When your messaging sounds like everyone else's, buyers compare on the only remaining
-                  variable: price. Your differentiation exists—it's just buried or unstated.
+                  variable: price. Your differentiation exists - it's just buried or unstated.
                 </p>
                 <p className="text-body">
                   The goal isn't to invent differentiation. It's to surface what's already true about
@@ -1433,7 +1513,7 @@ export default function SamplePage() {
               <h3 className="text-subsection mb-2">Finding the white space</h3>
               <p className="text-body">
                 If everyone claims "quality" and "service," those words mean nothing. I analyzed your
-                three closest competitors to find what they're <em>not</em> saying—the position nobody's
+                three closest competitors to find what they're <em>not</em> saying - the position nobody's
                 claimed. That's where you win. This analysis shows exactly where the opening is.
               </p>
             </div>
@@ -1472,7 +1552,7 @@ export default function SamplePage() {
             <div className="callout mb-8">
               <h3 className="text-subsection mb-2">💡 Opportunity spotted</h3>
               <p className="text-body">
-                No competitor is claiming the "partnership" position—the long-term relationship angle.
+                No competitor is claiming the "partnership" position - the long-term relationship angle.
                 Your 12-year average machinist tenure and high customer retention rate could own this
                 space: "The shop that becomes part of your team."
               </p>
@@ -1599,7 +1679,7 @@ export default function SamplePage() {
               <p className="text-body">
                 "Request a Quote" on your homepage? You're asking someone who just met you to make a
                 commitment. That's like proposing on a first date. This analysis maps every call-to-action
-                on your site against where visitors actually are in their decision process—and shows
+                on your site against where visitors actually are in their decision process - and shows
                 you what actions to offer at each stage.
               </p>
             </div>
@@ -1627,7 +1707,7 @@ export default function SamplePage() {
                 <h3 className="text-subsection mb-4">What this means for you</h3>
                 <p className="text-body mb-4">
                   "Contact Us" asks for commitment before you've built trust. Visitors who aren't
-                  ready to talk—but might be great fits—have no way to stay engaged.
+                  ready to talk - but might be great fits - have no way to stay engaged.
                 </p>
                 <p className="text-body">
                   Result: You only capture prospects who are already ready to buy. Everyone else leaves.
@@ -1671,7 +1751,7 @@ export default function SamplePage() {
           <div className="container">
             <h2 className="text-section mb-6">Copy you can use today</h2>
             <p className="text-body-lg mb-8 max-w-3xl">
-              These aren't suggestions—they're actual rewrites you can copy and paste. Each one
+              These aren't suggestions - they're actual rewrites you can copy and paste. Each one
               transforms generic messaging into something specific, provable, and differentiated.
             </p>
 
@@ -1749,7 +1829,7 @@ export default function SamplePage() {
             <div className="max-w-2xl mx-auto text-center">
               <h2 className="text-3xl font-bold mb-4">Want this for your site?</h2>
               <p className="text-lg text-[var(--muted-foreground)] mb-8">
-                Get the same detailed analysis for your website — 6 scorecards, prioritized action plan, and copy you can use today.
+                Get the same detailed analysis for your website - 6 scorecards, prioritized action plan, and copy you can use today.
               </p>
               <Link
                 href="/"

@@ -18,15 +18,27 @@ const localStore = new Map<string, AnalysisState>();
 
 async function getState(id: string): Promise<AnalysisState | null> {
   if (useKV) {
-    return await kv.get<AnalysisState>(`analysis:${id}`);
+    try {
+      return await kv.get<AnalysisState>(`analysis:${id}`);
+    } catch (error) {
+      console.error(`[KV Error] Failed to get state for ${id}:`, error);
+      // Fall back to local store if KV fails
+      return localStore.get(id) || null;
+    }
   }
   return localStore.get(id) || null;
 }
 
 async function setState(id: string, state: AnalysisState): Promise<void> {
   if (useKV) {
-    // Store with 1 hour expiry
-    await kv.set(`analysis:${id}`, state, { ex: 3600 });
+    try {
+      // Store with 1 hour expiry
+      await kv.set(`analysis:${id}`, state, { ex: 3600 });
+    } catch (error) {
+      console.error(`[KV Error] Failed to set state for ${id}:`, error);
+      // Fall back to local store if KV fails
+      localStore.set(id, state);
+    }
   } else {
     localStore.set(id, state);
   }
@@ -63,6 +75,14 @@ interface PreviewData {
     title: string;
     description: string;
     severity: 'critical' | 'warning' | 'info';
+    // Findings attached DIRECTLY to each issue (not separate array!)
+    findings: Array<{
+      phrase: string;
+      problem: string;
+      rewrite: string;
+      location: string;
+      pageUrl: string;
+    }>;
   }>;
   siteSnapshot: {
     title: string;
@@ -70,7 +90,7 @@ interface PreviewData {
     hasLinkedIn: boolean;
     pagesFound: string[];
   };
-  // One real finding to prove value (teaser)
+  // Legacy single teaser (keep for backwards compatibility)
   teaserFinding?: {
     phrase: string;
     problem: string;
@@ -406,30 +426,83 @@ async function updateState(id: string, updates: Partial<AnalysisState>) {
 
 /**
  * Build preview data from analysis results
+ *
+ * CRITICAL: Each topIssue gets findings attached DIRECTLY to it.
+ * We distribute phrase-level findings across top issues so every issue has rewrites.
  */
 function buildPreview(crawlResult: CrawlResult, analysis: AnalysisResult): PreviewData {
   const hostname = new URL(crawlResult.pages[0]?.url || 'https://example.com').hostname;
 
-  // Find the first real issue with a rewrite to use as teaser
-  let teaserFinding: PreviewData['teaserFinding'] = undefined;
+  // Collect ALL phrase-level findings from pageAnalysis
+  const allFindings: Array<{
+    phrase: string;
+    problem: string;
+    rewrite: string;
+    location: string;
+    pageUrl: string;
+  }> = [];
+
   for (const page of analysis.pageAnalysis) {
-    const issueWithRewrite = page.issues.find(i => i.phrase && i.rewrite);
-    if (issueWithRewrite) {
-      teaserFinding = {
-        phrase: issueWithRewrite.phrase,
-        problem: issueWithRewrite.problem,
-        rewrite: issueWithRewrite.rewrite,
-        location: issueWithRewrite.location,
-        pageUrl: page.url,
-      };
-      break;
+    for (const issue of page.issues) {
+      if (issue.phrase && issue.rewrite) {
+        allFindings.push({
+          phrase: issue.phrase,
+          problem: issue.problem,
+          rewrite: issue.rewrite,
+          location: issue.location,
+          pageUrl: page.url,
+        });
+      }
     }
   }
+
+  // Build topIssues with findings attached to each
+  // Distribute findings across issues - each issue gets up to 5 findings
+  const topIssuesWithFindings = analysis.topIssues.slice(0, 10).map((issue, issueIndex) => {
+    // Each issue gets a slice of findings
+    // Issue 0 gets findings 0-4, Issue 1 gets 5-9, etc.
+    // If we run out, cycle back to remaining findings
+    const findingsPerIssue = 5;
+    const startIndex = issueIndex * findingsPerIssue;
+
+    // Get findings for this issue
+    let issueFindings: typeof allFindings = [];
+
+    if (allFindings.length > 0) {
+      // First, try to get a dedicated slice
+      if (startIndex < allFindings.length) {
+        issueFindings = allFindings.slice(startIndex, startIndex + findingsPerIssue);
+      }
+
+      // If we don't have enough, cycle through available findings
+      if (issueFindings.length === 0) {
+        // Cycle through all findings for issues that have no dedicated slice
+        const cycleIndex = issueIndex % Math.ceil(allFindings.length / findingsPerIssue);
+        const cycleStart = cycleIndex * findingsPerIssue;
+        issueFindings = allFindings.slice(cycleStart, cycleStart + findingsPerIssue);
+      }
+
+      // If still nothing, just grab first 5
+      if (issueFindings.length === 0 && allFindings.length > 0) {
+        issueFindings = allFindings.slice(0, findingsPerIssue);
+      }
+    }
+
+    return {
+      title: issue.title,
+      description: issue.description,
+      severity: issue.severity,
+      findings: issueFindings,
+    };
+  });
+
+  // First finding overall is the legacy teaser (backwards compatibility)
+  const teaserFinding = allFindings[0] || undefined;
 
   return {
     commodityScore: analysis.commodityScore,
     pagesScanned: crawlResult.pages.length,
-    topIssues: analysis.topIssues.slice(0, 10),
+    topIssues: topIssuesWithFindings,
     siteSnapshot: {
       title: hostname.replace('www.', '').split('.')[0],
       description: crawlResult.pages[0]?.meta.description || '',
@@ -518,17 +591,33 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    // Handle competitor enrichment
+    // Handle competitor enrichment - always aim for 5 competitors
     if (competitors && Array.isArray(competitors) && competitors.length > 0) {
-      const validCompetitors = competitors
+      let allCompetitors = competitors
         .filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
-        .map(c => c.trim())
-        .slice(0, 5);
+        .map(c => c.trim());
+
+      // Supplement with AI-suggested competitors to reach 5
+      if (allCompetitors.length < 5 && state.fullResults?.competitorComparison?.competitors) {
+        const aiSuggested = state.fullResults.competitorComparison.competitors
+          .filter(c => !allCompetitors.includes(c));
+        allCompetitors = [...allCompetitors, ...aiSuggested].slice(0, 5);
+      }
+
+      // If still under 5 and we have suggestedCompetitors from initial analysis, use those
+      // (stored during initial analysis from AI)
+      if (allCompetitors.length < 5 && (state as unknown as { suggestedCompetitors?: Array<{ domain: string }> }).suggestedCompetitors) {
+        const suggested = ((state as unknown as { suggestedCompetitors?: Array<{ domain: string }> }).suggestedCompetitors || [])
+          .map(s => s.domain)
+          .filter(d => !allCompetitors.includes(d));
+        allCompetitors = [...allCompetitors, ...suggested].slice(0, 5);
+      }
+
+      const validCompetitors = allCompetitors.slice(0, 5);
 
       if (validCompetitors.length > 0) {
         // Set enriching status
         await updateState(id, {
-          
           enrichmentStatus: 'analyzing_competitors',
           enrichmentProgress: 0,
           pendingCompetitors: validCompetitors,
@@ -539,7 +628,6 @@ export async function PATCH(request: NextRequest) {
           analyzeCompetitors(id, validCompetitors).catch(err => {
             console.error('Competitor analysis failed:', err);
             updateState(id, {
-              
               enrichmentStatus: 'failed',
             });
           })
@@ -663,7 +751,7 @@ async function analyzeCompetitors(analysisId: string, competitors: string[]): Pr
       gaps.push('Competitors have clearer differentiation than you');
       gaps.push('Look for proof points you can surface to stand out');
     } else {
-      gaps.push('Your messaging is similar to competitors—room to differentiate');
+      gaps.push('Your messaging is similar to competitors - room to differentiate');
       gaps.push('Focus on unique proof points only you can claim');
     }
 
@@ -672,33 +760,48 @@ async function analyzeCompetitors(analysisId: string, competitors: string[]): Pr
     const worstCompetitor = competitorScores.reduce((worst, c) => c.score < worst.score ? c : worst, competitorScores[0]);
 
     if (bestCompetitor && bestCompetitor.score > yourScore) {
-      gaps.push(`${bestCompetitor.url} has stronger differentiation—worth studying`);
+      gaps.push(`${bestCompetitor.url} has stronger differentiation - worth studying`);
     }
     if (worstCompetitor && worstCompetitor.score < yourScore - 15) {
       gaps.push(`You're ahead of ${worstCompetitor.url} in messaging clarity`);
     }
 
-    // Update state with competitor comparison
+    // Update state with competitor comparison - MERGE with existing competitors
     const currentFullResults = state.fullResults || {
       pageByPage: [],
       proofPoints: [],
       voiceAnalysis: { currentTone: '', authenticVoice: '', examples: [] },
     };
 
+    // Merge new competitor scores with existing ones (don't overwrite)
+    const existingScores = currentFullResults.competitorComparison?.detailedScores || [];
+    const existingCompetitors = currentFullResults.competitorComparison?.competitors || [];
+
+    // Combine, avoiding duplicates
+    const allCompetitors = [...new Set([...existingCompetitors, ...competitors])];
+    const allScores = [
+      ...existingScores.filter(s => !competitorScores.some(n => n.url === s.url)),
+      ...competitorScores
+    ];
+
+    const totalAvgScore = allScores.length > 0
+      ? Math.round(allScores.reduce((sum, c) => sum + c.score, 0) / allScores.length)
+      : avgScore;
+
     await updateState(analysisId, {
       fullResults: {
         ...currentFullResults,
         competitorComparison: {
-          competitors: competitors,
+          competitors: allCompetitors,
           yourScore,
-          averageScore: avgScore,
+          averageScore: totalAvgScore,
           gaps,
-          detailedScores: competitorScores,
+          detailedScores: allScores,
         },
       },
       enrichmentStatus: 'complete',
       enrichmentProgress: 100,
-      enrichmentMessage: `Analyzed ${competitorScores.length} competitor${competitorScores.length !== 1 ? 's' : ''}`,
+      enrichmentMessage: `Analyzed ${allScores.length} competitor${allScores.length !== 1 ? 's' : ''}`,
     });
 
   } catch (error) {
