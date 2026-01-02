@@ -5,30 +5,54 @@
  * and generate specific recommendations.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
 import { CrawledPage, CrawlResult } from './crawler';
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _anthropic: any = null;
+
+async function getAnthropicClient() {
+  if (!_anthropic) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error('ANTHROPIC_API_KEY is not set');
+    }
+    console.log(`[AI] Initializing Anthropic client - key present: ${!!apiKey}, length: ${apiKey?.length || 0}`);
+    // Regular dynamic import - force-dynamic prevents build-time evaluation
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
+    _anthropic = new Anthropic({ apiKey });
+  }
+  return _anthropic;
+}
+
+export interface Finding {
+  phrase: string;
+  problem: string;
+  rewrite: string;
+  location: string;
+  pageUrl?: string;
+}
 
 export interface AnalysisResult {
   commodityScore: number;
+  categoryScores?: {
+    firstImpression: number;  // 0-10
+    differentiation: number;  // 0-10
+    customerClarity: number;  // 0-10
+    storyStructure: number;   // 0-10
+    trustSignals: number;     // 0-10
+    buttonClarity: number;    // 0-10
+  };
   topIssues: Array<{
     title: string;
     description: string;
     severity: 'critical' | 'warning' | 'info';
+    findings?: Finding[]; // Findings nested directly on each issue
   }>;
   pageAnalysis: Array<{
     url: string;
     title: string;
     score: number;
-    issues: Array<{
-      phrase: string;
-      problem: string;
-      rewrite: string;
-      location: string;
-    }>;
+    issues: Finding[];
   }>;
   proofPoints: Array<{
     quote: string;
@@ -47,8 +71,13 @@ export interface AnalysisResult {
   }>;
 }
 
+// Minimum findings thresholds for quality audit
+const MIN_TOTAL_FINDINGS = 25;
+const MIN_FINDINGS_PER_CATEGORY = 2;
+
 /**
  * Analyze crawled website content using Claude
+ * Includes automatic second-pass retry for sparse results
  */
 export async function analyzeWebsite(
   crawlResult: CrawlResult,
@@ -63,32 +92,281 @@ export async function analyzeWebsite(
     meta: page.meta,
   }));
 
-  // Build the analysis prompt
-  const prompt = buildAnalysisPrompt(siteUrl, pagesContent);
-
   try {
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4000,
-      messages: [
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-    });
+    // Debug: Check API key at runtime
+    const apiKeyPresent = !!process.env.ANTHROPIC_API_KEY;
+    const apiKeyLength = process.env.ANTHROPIC_API_KEY?.length || 0;
+    console.log(`[AI] API Key check - present: ${apiKeyPresent}, length: ${apiKeyLength}`);
 
-    // Parse the response
-    const responseText = message.content[0].type === 'text'
-      ? message.content[0].text
-      : '';
+    // ===== FIRST PASS =====
+    console.log(`[AI] FIRST PASS: Analyzing ${siteUrl} with ${pagesContent.length} pages...`);
+    const firstPassResult = await runAnalysisPass(siteUrl, pagesContent, crawlResult.pages);
 
-    return parseAnalysisResponse(responseText, crawlResult.pages);
+    // Count findings
+    const totalFindings = countTotalFindings(firstPassResult);
+    const sparseCategories = findSparseCategories(firstPassResult);
+
+    console.log(`[AI] First pass complete: ${totalFindings} findings, ${sparseCategories.length} sparse categories`);
+
+    // ===== SECOND PASS (if needed) =====
+    if (totalFindings < MIN_TOTAL_FINDINGS || sparseCategories.length > 3) {
+      console.log(`[AI] SECOND PASS: Need more findings (have ${totalFindings}, need ${MIN_TOTAL_FINDINGS})`);
+      console.log(`[AI] Sparse categories: ${sparseCategories.join(', ')}`);
+
+      try {
+        const secondPassResult = await runSecondPass(
+          siteUrl,
+          pagesContent,
+          crawlResult.pages,
+          sparseCategories,
+          firstPassResult
+        );
+
+        // Merge results
+        const mergedResult = mergeAnalysisResults(firstPassResult, secondPassResult);
+        const mergedTotal = countTotalFindings(mergedResult);
+        console.log(`[AI] After merge: ${mergedTotal} total findings`);
+
+        return mergedResult;
+      } catch (secondPassError) {
+        console.error('[AI] Second pass failed, using first pass results:', secondPassError);
+        return firstPassResult;
+      }
+    }
+
+    return firstPassResult;
   } catch (error) {
-    console.error('AI analysis error:', error);
+    console.error('[AI] ===== ANALYSIS ERROR =====');
+    console.error('[AI] Error object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+    console.error('[AI] Error type:', error instanceof Error ? error.constructor.name : typeof error);
+    console.error('[AI] Error message:', error instanceof Error ? error.message : String(error));
+    if (error instanceof Error && 'status' in error) {
+      console.error('[AI] HTTP status:', (error as { status: number }).status);
+    }
+    if (error instanceof Error && 'response' in error) {
+      console.error('[AI] Response:', JSON.stringify((error as { response: unknown }).response));
+    }
+    console.error('[AI] API Key present:', !!process.env.ANTHROPIC_API_KEY);
+    console.error('[AI] API Key prefix:', process.env.ANTHROPIC_API_KEY?.substring(0, 20));
     // Return fallback analysis if AI fails
     return generateFallbackAnalysis(crawlResult.pages, siteUrl);
   }
+}
+
+/**
+ * Run a single analysis pass
+ */
+async function runAnalysisPass(
+  siteUrl: string,
+  pagesContent: Array<{ url: string; title: string; content: string; meta: Record<string, string | undefined> }>,
+  pages: CrawledPage[]
+): Promise<AnalysisResult> {
+  const prompt = buildAnalysisPrompt(siteUrl, pagesContent);
+
+  const anthropic = await getAnthropicClient();
+  const message = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 8000,
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  const responseText = message.content[0].type === 'text' ? message.content[0].text : '';
+  console.log(`[AI] Got response, length: ${responseText.length} chars`);
+
+  return parseAnalysisResponse(responseText, pages);
+}
+
+/**
+ * Run focused second pass on sparse categories
+ */
+async function runSecondPass(
+  siteUrl: string,
+  pagesContent: Array<{ url: string; title: string; content: string; meta: Record<string, string | undefined> }>,
+  pages: CrawledPage[],
+  sparseCategories: string[],
+  firstPassResult: AnalysisResult
+): Promise<AnalysisResult> {
+  const prompt = buildSecondPassPrompt(siteUrl, pagesContent, sparseCategories, firstPassResult);
+
+  const anthropic = await getAnthropicClient();
+  const message = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 6000,
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  const responseText = message.content[0].type === 'text' ? message.content[0].text : '';
+  console.log(`[AI] Second pass response, length: ${responseText.length} chars`);
+
+  return parseAnalysisResponse(responseText, pages);
+}
+
+/**
+ * Count total findings across all issues
+ */
+function countTotalFindings(result: AnalysisResult): number {
+  return result.topIssues.reduce((sum, issue) => sum + (issue.findings?.length || 0), 0);
+}
+
+/**
+ * Find categories with fewer than MIN_FINDINGS_PER_CATEGORY findings
+ */
+function findSparseCategories(result: AnalysisResult): string[] {
+  return result.topIssues
+    .filter(issue => (issue.findings?.length || 0) < MIN_FINDINGS_PER_CATEGORY)
+    .map(issue => issue.title);
+}
+
+/**
+ * Build prompt for focused second pass on sparse categories
+ */
+function buildSecondPassPrompt(
+  siteUrl: string,
+  pages: Array<{ url: string; title: string; content: string; meta: Record<string, string | undefined> }>,
+  sparseCategories: string[],
+  firstPassResult: AnalysisResult
+): string {
+  // Get existing phrases to avoid duplicates
+  const existingPhrases = firstPassResult.topIssues
+    .flatMap(i => i.findings || [])
+    .map(f => f.phrase.toLowerCase().trim())
+    .filter(p => p.length > 0);
+
+  return `You are an expert website messaging strategist doing a DEEP DIVE analysis.
+
+WEBSITE: ${siteUrl}
+
+PAGES CRAWLED:
+${pages.map(p => `
+--- ${p.url} ---
+Title: ${p.title}
+${p.meta.description ? `Meta: ${p.meta.description}` : ''}
+Content:
+${p.content}
+`).join('\n')}
+
+PREVIOUS ANALYSIS found these issues but needs MORE SPECIFIC EXAMPLES.
+
+CATEGORIES NEEDING MORE FINDINGS (find 3-5 in EACH):
+${sparseCategories.map((cat, i) => `${i + 1}. ${cat}`).join('\n')}
+
+PHRASES ALREADY FOUND (DO NOT REPEAT THESE):
+${existingPhrases.slice(0, 20).map(p => `- "${p}"`).join('\n')}
+
+YOUR TASK: Find ADDITIONAL problematic phrases we missed. Look harder at:
+- Headers and subheaders on ALL pages
+- Button text and CTAs
+- Feature descriptions
+- About/Team page content
+- Footer content
+- Navigation labels
+- Form labels and descriptions
+- Any repeated phrases across pages
+
+CRITICAL LENGTH CONSTRAINT for rewrites:
+- Keep rewrites proportional to original: -30% to +15% of original word count
+- Shorter is often BETTER (tighter copy wins)
+- A 7-word headline should get a ~5-9 word rewrite, NOT a 30-word paragraph
+- A 20-word sentence should get a ~14-23 word rewrite
+- DON'T add extra context just to fill space
+- DO make every word earn its place
+
+RESPOND IN THIS EXACT JSON FORMAT:
+{
+  "differentiationScore": ${firstPassResult.commodityScore},
+  "topIssues": [
+${sparseCategories.map(cat => `    {
+      "title": "${cat}",
+      "description": "Additional findings for ${cat}",
+      "severity": "warning",
+      "findings": [
+        {
+          "phrase": "<EXACT quote from page content - must be DIFFERENT from already found>",
+          "problem": "<why this hurts the business>",
+          "rewrite": "<SPECIFIC replacement copy>",
+          "location": "<where: page section>",
+          "pageUrl": "<page URL>"
+        }
+      ]
+    }`).join(',\n')}
+  ],
+  "proofPoints": [],
+  "voiceAnalysis": {
+    "currentTone": "${firstPassResult.voiceAnalysis.currentTone}",
+    "authenticVoice": "${firstPassResult.voiceAnalysis.authenticVoice}",
+    "examples": []
+  },
+  "suggestedCompetitors": []
+}
+
+CRITICAL:
+1. Find 3-5 NEW findings per category listed above
+2. Quote ACTUAL TEXT from the pages - no made up examples
+3. DO NOT repeat any phrases from the "already found" list
+4. If a category genuinely has no more issues, explain why in the description`;
+}
+
+/**
+ * Merge findings from first and second pass, deduplicating
+ */
+function mergeAnalysisResults(first: AnalysisResult, second: AnalysisResult): AnalysisResult {
+  // Create a map of issues by title for merging
+  const mergedIssues = new Map<string, typeof first.topIssues[0]>();
+
+  // Add all first pass issues
+  for (const issue of first.topIssues) {
+    mergedIssues.set(issue.title, { ...issue, findings: [...(issue.findings || [])] });
+  }
+
+  // Merge second pass findings into matching categories
+  for (const secondIssue of second.topIssues) {
+    const existing = mergedIssues.get(secondIssue.title);
+    if (existing) {
+      // Get existing phrases for deduplication
+      const existingPhrases = new Set(
+        (existing.findings || []).map(f => f.phrase.toLowerCase().trim())
+      );
+
+      // Add non-duplicate findings from second pass
+      for (const finding of secondIssue.findings || []) {
+        const normalizedPhrase = finding.phrase.toLowerCase().trim();
+        // Check for exact match or high similarity
+        const isDuplicate = existingPhrases.has(normalizedPhrase) ||
+          Array.from(existingPhrases).some(ep =>
+            normalizedPhrase.includes(ep) || ep.includes(normalizedPhrase)
+          );
+
+        if (!isDuplicate && finding.phrase.length > 5) {
+          existing.findings = existing.findings || [];
+          existing.findings.push(finding);
+          existingPhrases.add(normalizedPhrase);
+        }
+      }
+    } else {
+      // New category from second pass (shouldn't happen but handle it)
+      mergedIssues.set(secondIssue.title, secondIssue);
+    }
+  }
+
+  // Rebuild pageAnalysis from merged findings
+  const allFindings = Array.from(mergedIssues.values()).flatMap(i => i.findings || []);
+  const pageMap = new Map<string, Finding[]>();
+  for (const finding of allFindings) {
+    const pageUrl = finding.pageUrl || '';
+    if (!pageMap.has(pageUrl)) pageMap.set(pageUrl, []);
+    pageMap.get(pageUrl)!.push(finding);
+  }
+
+  return {
+    ...first,
+    topIssues: Array.from(mergedIssues.values()),
+    pageAnalysis: Array.from(pageMap.entries()).map(([url, issues]) => ({
+      url,
+      title: url,
+      score: Math.max(10, 70 - issues.length * 10),
+      issues: issues.slice(0, 5),
+    })),
+  };
 }
 
 /**
@@ -111,34 +389,51 @@ Content:
 ${p.content}
 `).join('\n')}
 
-ANALYZE FOR:
-1. Commodity phrases - generic claims like "quality craftsmanship", "customer-focused", "innovative solutions"
-2. Missing proof points - claims without specific evidence
-3. Buried gold - specific testimonials, stats, or proof buried in content that should be highlighted
-4. Voice inconsistency - where the site sounds corporate vs authentic
-5. Likely competitors - based on industry, positioning, and offerings
+YOUR TASK: Find SPECIFIC PHRASES from the actual page content that are problematic, and provide SPECIFIC REWRITES.
+
+CRITICAL LENGTH CONSTRAINT for rewrites:
+- Keep rewrites proportional to original: -30% to +15% of original word count
+- Shorter is often BETTER (tighter copy wins)
+- A 7-word headline should get a ~5-9 word rewrite, NOT a 30-word paragraph
+- A 20-word sentence should get a ~14-23 word rewrite
+- DON'T add extra context just to fill space
+- DO make every word earn its place
+
+ISSUE CATEGORIES TO ANALYZE (find 3-5 phrases in EACH category):
+1. Generic positioning (hero/headline) - vague claims like "innovative solutions" or "leading provider"
+2. Vague value propositions (subheads) - "better, faster, easier" without specifics
+3. Missing/buried proof points - stats and testimonials hidden instead of prominent
+4. Weak social proof - generic "trusted by thousands" instead of specific logos/names
+5. Generic CTAs - "Contact Us" or "Learn More" without compelling reason
+6. Unclear target audience - who is this site for? Can visitors tell?
+7. Missing differentiators - nothing explains why choose you over alternatives
+8. Trust signal gaps - no visible certs, awards, or third-party validation
+9. Feature-first copy - leading with features instead of outcomes/benefits
+10. Generic about/team messaging - forgettable company description
 
 RESPOND IN THIS EXACT JSON FORMAT:
 {
-  "differentiationScore": <number 0-100, higher = better differentiated, lower = more commodity>,
+  "differentiationScore": <number 0-100, higher = better differentiated>,
+  "categoryScores": {
+    "firstImpression": <0-10 score for first impression clarity>,
+    "differentiation": <0-10 score for standing out from competitors>,
+    "customerClarity": <0-10 score for how clear the target audience is>,
+    "storyStructure": <0-10 score for compelling narrative>,
+    "trustSignals": <0-10 score for proof and credibility>,
+    "buttonClarity": <0-10 score for clear call-to-action>
+  },
   "topIssues": [
     {
-      "title": "<short issue title - be specific to THIS site>",
-      "description": "<1-2 sentence description referencing actual content from this site>",
-      "severity": "<critical|warning|info>"
-    }
-  ],
-  "pageAnalysis": [
-    {
-      "url": "<page url>",
-      "title": "<page title>",
-      "score": <differentiation score for this page 0-100>,
-      "issues": [
+      "title": "<issue category from list above>",
+      "description": "<1-2 sentences about how THIS site fails in this area>",
+      "severity": "<critical|warning|info>",
+      "findings": [
         {
-          "phrase": "<the exact problematic phrase found on this page>",
+          "phrase": "<EXACT quote from the page content>",
           "problem": "<why this specific phrase hurts this company>",
-          "rewrite": "<specific replacement copy using their industry/products>",
-          "location": "<where on page: hero, about section, etc>"
+          "rewrite": "<SPECIFIC replacement copy using details from THIS site - not generic advice>",
+          "location": "<where: hero section, about page, footer, etc>",
+          "pageUrl": "<which page URL this was found on>"
         }
       ]
     }
@@ -153,11 +448,7 @@ RESPOND IN THIS EXACT JSON FORMAT:
   "voiceAnalysis": {
     "currentTone": "<description of current website voice>",
     "authenticVoice": "<what their authentic voice seems to be based on content>",
-    "examples": [
-      "<example of corporate speak from site>",
-      "<example of more authentic language found>",
-      "<recommendation>"
-    ]
+    "examples": ["<corporate speak example>", "<authentic example if found>", "<recommendation>"]
   },
   "suggestedCompetitors": [
     {
@@ -168,50 +459,134 @@ RESPOND IN THIS EXACT JSON FORMAT:
   ]
 }
 
-CRITICAL INSTRUCTIONS:
-- Provide 10 top issues minimum, all specific to THIS site with actual quotes/phrases from the content
-- Analyze all pages provided
-- Find 3-5 proof points if they exist
-- Give meaningful voice analysis
-- Suggest 5 likely competitors based on the industry and offerings (domain only, no https://)
-- Be specific - reference actual content you found, not generic advice`;
+CRITICAL REQUIREMENTS:
+1. Return EXACTLY 10 topIssues (one for each category)
+2. Each topIssue MUST have 3-5 findings with actual quotes from the content
+3. MINIMUM 30 total findings across all issues (you should have 30-50)
+4. Rewrites must be ACTUAL COPY, not instructions like "add specificity" - write the actual headline/sentence
+5. Include pageUrl for every finding so users know where to fix it
+6. Find 3-5 proof points if they exist in the content
+7. Suggest 5 likely competitors based on industry and offerings
+8. Be brutally specific - quote actual text, provide actual replacement copy`;
 }
 
 /**
  * Parse Claude's response into structured data
+ * Handles both new structure (findings in topIssues) and old structure (findings in pageAnalysis)
  */
 function parseAnalysisResponse(
   response: string,
   pages: CrawledPage[]
 ): AnalysisResult {
   try {
-    // Extract JSON from response (Claude might include explanation text)
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
+    // Strip markdown code fences if present (Claude often wraps JSON in ```json ... ```)
+    let cleanedResponse = response;
+    if (response.includes('```json')) {
+      cleanedResponse = response.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+    } else if (response.includes('```')) {
+      cleanedResponse = response.replace(/```\s*/g, '');
+    }
+
+    // Extract JSON from response
+    const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
+      console.error('[Parser] No JSON found in AI response');
+      console.error('[Parser] Response preview:', response.substring(0, 300));
       throw new Error('No JSON found in response');
     }
 
     const parsed = JSON.parse(jsonMatch[0]);
+    console.log('[Parser] Successfully parsed AI JSON response');
 
-    // Validate and return - differentiationScore where 100 = best
+    // FIRST: Collect all findings from pageAnalysis (old structure / backwards compat)
+    const allFindingsFromPages: Finding[] = [];
+    if (Array.isArray(parsed.pageAnalysis)) {
+      for (const page of parsed.pageAnalysis) {
+        const pageUrl = String(page.url || pages[0]?.url || '');
+        if (Array.isArray(page.issues)) {
+          for (const issue of page.issues) {
+            if (issue.phrase && issue.rewrite) {
+              allFindingsFromPages.push({
+                phrase: String(issue.phrase || ''),
+                problem: String(issue.problem || ''),
+                rewrite: String(issue.rewrite || ''),
+                location: String(issue.location || ''),
+                pageUrl,
+              });
+            }
+          }
+        }
+      }
+    }
+    console.log(`[Parser] Found ${allFindingsFromPages.length} findings from pageAnalysis`);
+
+    // SECOND: Parse topIssues and merge findings
+    const topIssues = (parsed.topIssues || []).slice(0, 10).map((issue: Record<string, unknown>, idx: number) => {
+      // Parse findings nested within each issue (new structure)
+      let findings: Finding[] = [];
+
+      if (Array.isArray(issue.findings) && issue.findings.length > 0) {
+        // New structure: findings directly on issue
+        findings = issue.findings.map((f: Record<string, string>) => ({
+          phrase: f.phrase || '',
+          problem: f.problem || '',
+          rewrite: f.rewrite || '',
+          location: f.location || '',
+          pageUrl: f.pageUrl || '',
+        }));
+      } else if (allFindingsFromPages.length > 0) {
+        // Old structure: distribute findings from pageAnalysis round-robin
+        const numIssues = Math.min(10, (parsed.topIssues || []).length);
+        findings = allFindingsFromPages.filter((_, findingIdx) => {
+          // Round-robin: finding 0 -> issue 0, finding 1 -> issue 1, etc.
+          return findingIdx % numIssues === idx;
+        }).slice(0, 5);
+      }
+
+      return {
+        title: String(issue.title || 'Issue detected'),
+        description: String(issue.description || 'Generic messaging detected'),
+        severity: (['critical', 'warning', 'info'].includes(String(issue.severity)) ? issue.severity : 'warning') as 'critical' | 'warning' | 'info',
+        findings,
+      };
+    });
+
+    // Count total findings
+    const totalFindings = topIssues.reduce((sum: number, i: { findings: Finding[] }) => sum + i.findings.length, 0);
+    console.log(`[Parser] Total findings distributed across ${topIssues.length} issues: ${totalFindings}`);
+
+    // Build pageAnalysis for backwards compatibility
+    const pageMap = new Map<string, Finding[]>();
+    for (const issue of topIssues) {
+      for (const finding of issue.findings || []) {
+        const pageUrl = finding.pageUrl || pages[0]?.url || '';
+        if (!pageMap.has(pageUrl)) {
+          pageMap.set(pageUrl, []);
+        }
+        pageMap.get(pageUrl)!.push(finding);
+      }
+    }
+
+    const pageAnalysis = Array.from(pageMap.entries()).map(([url, issues]) => ({
+      url,
+      title: pages.find(p => p.url === url)?.title || 'Page',
+      score: Math.max(10, 70 - issues.length * 10),
+      issues: issues.slice(0, 5),
+    }));
+
+    // Validate and return
     return {
       commodityScore: Math.min(100, Math.max(0, parsed.differentiationScore || parsed.commodityScore || 50)),
-      topIssues: (parsed.topIssues || []).slice(0, 10).map((issue: Record<string, string>) => ({
-        title: issue.title || 'Issue detected',
-        description: issue.description || 'Generic messaging detected',
-        severity: (['critical', 'warning', 'info'].includes(issue.severity) ? issue.severity : 'warning') as 'critical' | 'warning' | 'info',
-      })),
-      pageAnalysis: (parsed.pageAnalysis || []).map((page: Record<string, unknown>) => ({
-        url: String(page.url || ''),
-        title: String(page.title || 'Page'),
-        score: Number(page.score) || 70,
-        issues: (Array.isArray(page.issues) ? page.issues : []).map((issue: Record<string, string>) => ({
-          phrase: issue.phrase || '',
-          problem: issue.problem || '',
-          rewrite: issue.rewrite || '',
-          location: issue.location || '',
-        })),
-      })),
+      categoryScores: parsed.categoryScores ? {
+        firstImpression: Math.min(10, Math.max(0, parsed.categoryScores.firstImpression || 5)),
+        differentiation: Math.min(10, Math.max(0, parsed.categoryScores.differentiation || 5)),
+        customerClarity: Math.min(10, Math.max(0, parsed.categoryScores.customerClarity || 5)),
+        storyStructure: Math.min(10, Math.max(0, parsed.categoryScores.storyStructure || 5)),
+        trustSignals: Math.min(10, Math.max(0, parsed.categoryScores.trustSignals || 5)),
+        buttonClarity: Math.min(10, Math.max(0, parsed.categoryScores.buttonClarity || 5)),
+      } : undefined,
+      topIssues,
+      pageAnalysis,
       proofPoints: (parsed.proofPoints || []).map((pp: Record<string, string>) => ({
         quote: pp.quote || '',
         source: pp.source || '',
@@ -469,105 +844,129 @@ function generateFallbackAnalysis(pages: CrawledPage[], siteUrl: string): Analys
 
   const commodityPhrases = Object.keys(commodityPhraseRewrites);
 
-  let totalMatches = 0;
-  const issues: AnalysisResult['topIssues'] = [];
+  // Collect all findings from pages
+  const allFindings: Finding[] = [];
   const pageAnalysis: AnalysisResult['pageAnalysis'] = [];
 
   for (const page of pages.slice(0, 10)) {
     const lowerContent = page.content.toLowerCase();
-    const pageIssues: AnalysisResult['pageAnalysis'][0]['issues'] = [];
-    let pageMatches = 0;
+    const pageFindings: Finding[] = [];
 
     for (const phrase of commodityPhrases) {
       if (lowerContent.includes(phrase.toLowerCase())) {
-        pageMatches++;
-        totalMatches++;
         const rewriteData = commodityPhraseRewrites[phrase];
-        pageIssues.push({
+        const finding: Finding = {
           phrase: `"${phrase}"`,
           problem: rewriteData.problem,
           rewrite: rewriteData.rewrite,
           location: 'Found in page content',
-        });
+          pageUrl: page.url,
+        };
+        pageFindings.push(finding);
+        allFindings.push(finding);
       }
     }
 
     pageAnalysis.push({
       url: page.url,
       title: page.title,
-      score: Math.max(10, 70 - pageMatches * 15), // Higher = better, subtract for commodity phrases
-      issues: pageIssues.slice(0, 3),
+      score: Math.max(10, 70 - pageFindings.length * 15),
+      issues: pageFindings.slice(0, 5),
     });
   }
 
-  // Generate top issues based on findings
-  if (totalMatches > 0) {
-    issues.push({
-      title: 'Commodity language detected',
-      description: `Found ${totalMatches} generic phrases across your site that appear on competitor websites.`,
-      severity: 'critical',
-    });
-  }
+  // Define the 10 issue categories with their findings
+  const issueCategories = [
+    {
+      title: 'Generic positioning (hero/headline)',
+      description: 'Your homepage opens with vague claims instead of specific proof.',
+      severity: 'critical' as const,
+      keywords: ['quality', 'leading', 'premier', 'innovative', 'solutions'],
+    },
+    {
+      title: 'Vague value propositions',
+      description: 'Subheads promise "better, faster, easier" without specifics.',
+      severity: 'critical' as const,
+      keywords: ['customer-focused', 'dedicated', 'committed', 'excellence'],
+    },
+    {
+      title: 'Missing/buried proof points',
+      description: 'Stats and testimonials are hidden instead of prominent.',
+      severity: 'critical' as const,
+      keywords: ['proven', 'track record', 'trusted'],
+    },
+    {
+      title: 'Weak social proof',
+      description: 'Generic "trusted by thousands" instead of specific logos/names.',
+      severity: 'warning' as const,
+      keywords: ['world-class', 'best-in-class', 'industry-leading'],
+    },
+    {
+      title: 'Generic CTAs',
+      description: '"Contact Us" and "Learn More" don\'t give visitors a reason to click.',
+      severity: 'warning' as const,
+      keywords: ['partner', 'passionate'],
+    },
+    {
+      title: 'Unclear target audience',
+      description: 'Visitors can\'t tell if they\'re the right fit for your services.',
+      severity: 'warning' as const,
+      keywords: ['businesses', 'companies', 'organizations'],
+    },
+    {
+      title: 'Missing differentiators',
+      description: 'Nothing explains why someone should choose you over alternatives.',
+      severity: 'warning' as const,
+      keywords: ['unique', 'different', 'unlike'],
+    },
+    {
+      title: 'Trust signal gaps',
+      description: 'No visible certifications, awards, or third-party validation.',
+      severity: 'info' as const,
+      keywords: ['certified', 'award', 'recognized'],
+    },
+    {
+      title: 'Feature-first copy',
+      description: 'You lead with what you do instead of the outcomes you deliver.',
+      severity: 'info' as const,
+      keywords: ['cutting-edge', 'state-of-the-art', 'technology'],
+    },
+    {
+      title: 'Generic about/team messaging',
+      description: 'Your about page is forgettable corporate speak.',
+      severity: 'info' as const,
+      keywords: ['team', 'years', 'experience'],
+    },
+  ];
 
-  issues.push({
-    title: 'Missing specific proof points',
-    description: 'Your claims need specific numbers, names, and examples to be believable.',
-    severity: 'critical',
-  });
+  // Distribute findings to issues based on keyword matching
+  const issuesWithFindings = issueCategories.map(category => {
+    const matchedFindings = allFindings.filter(f => {
+      const phraseText = f.phrase.toLowerCase();
+      return category.keywords.some(kw => phraseText.includes(kw));
+    }).slice(0, 5);
 
-  issues.push({
-    title: 'Generic value proposition',
-    description: 'Your homepage doesn\'t clearly state what makes you different from competitors.',
-    severity: 'critical',
-  });
-
-  issues.push({
-    title: 'Weak headline structure',
-    description: 'Your headlines describe what you do, not why it matters to the buyer.',
-    severity: 'warning',
-  });
-
-  issues.push({
-    title: 'No clear ideal customer',
-    description: 'Visitors can\'t tell if they\'re the right fit for your services.',
-    severity: 'warning',
-  });
-
-  issues.push({
-    title: 'Buried social proof',
-    description: 'Testimonials and case studies are hidden instead of front and center.',
-    severity: 'warning',
-  });
-
-  issues.push({
-    title: 'Generic CTAs',
-    description: '"Contact Us" and "Learn More" don\'t give visitors a reason to click.',
-    severity: 'warning',
-  });
-
-  issues.push({
-    title: 'Missing trust signals',
-    description: 'No visible certifications, awards, or third-party validation on key pages.',
-    severity: 'info',
-  });
-
-  issues.push({
-    title: 'Features before benefits',
-    description: 'You lead with what you do instead of the outcomes you deliver.',
-    severity: 'info',
-  });
-
-  issues.push({
-    title: 'No competitive positioning',
-    description: 'Nothing explains why someone should choose you over alternatives.',
-    severity: 'info',
+    return {
+      title: category.title,
+      description: category.description,
+      severity: category.severity,
+      findings: matchedFindings,
+    };
   });
 
   const hostname = siteUrl ? new URL(siteUrl).hostname : 'this site';
 
   return {
-    commodityScore: Math.max(10, 65 - totalMatches * 5), // Higher = better, subtract for commodity phrases
-    topIssues: issues,
+    commodityScore: Math.max(10, 65 - allFindings.length * 3),
+    categoryScores: {
+      firstImpression: 5,
+      differentiation: 4,
+      customerClarity: 5,
+      storyStructure: 4,
+      trustSignals: 5,
+      buttonClarity: 5,
+    },
+    topIssues: issuesWithFindings,
     pageAnalysis,
     proofPoints: [
       {

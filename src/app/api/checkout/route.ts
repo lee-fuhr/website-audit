@@ -3,10 +3,15 @@
  * Website Messaging Audit - $400
  */
 
+// Force dynamic to skip static generation
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+// Lazy initialization to avoid build-time errors
+const getStripe = () => new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 const TOOL_NAME = 'Website Messaging Audit';
 const TOOL_PRICE = 400;
@@ -36,7 +41,7 @@ export async function POST(request: NextRequest) {
     const origin = request.headers.get('origin') || 'https://websiteaudit.leefuhr.com';
 
     // Create Stripe Checkout session
-    const session = await stripe.checkout.sessions.create({
+    const session = await getStripe().checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [
         {

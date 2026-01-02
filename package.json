@@ -9,7 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.32.1",
+    "@anthropic-ai/sdk": "^0.71.2",
     "@vercel/functions": "^3.3.4",
     "@vercel/kv": "^3.0.0",
     "nanoid": "^5.0.9",

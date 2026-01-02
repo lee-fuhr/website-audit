@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { ViewNavBar } from '@/components/ViewNavBar'
 import { Footer } from '@/components/Footer'
+import { Tooltip } from '@/components/Tooltip'
 
 // Types for API response
 interface Finding {
@@ -36,6 +37,14 @@ interface PreviewData {
   voiceSummary?: {
     currentTone: string
     authenticVoice: string
+  }
+  categoryScores?: {
+    firstImpression: number
+    differentiation: number
+    customerClarity: number
+    storyStructure: number
+    trustSignals: number
+    buttonClarity: number
   }
 }
 
@@ -163,12 +172,16 @@ function getScoreBorderClass(score: number): string {
 function LockedFindings({
   onUnlock,
   showTeaser = false,
-  teaserFinding
+  teaserFinding,
+  isUnlocked = false
 }: {
   onUnlock: () => void
   showTeaser?: boolean
   teaserFinding?: PreviewData['teaserFinding']
+  isUnlocked?: boolean
 }) {
+  // If test unlocked, return empty (findings are shown elsewhere)
+  if (isUnlocked) return null
   return (
     <div className="my-6">
       {showTeaser && teaserFinding && (
@@ -229,6 +242,8 @@ function LockedFindings({
 export default function PreviewPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const isTestUnlocked = searchParams.get('unlock') === 'test'
   const [data, setData] = useState<AnalysisResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -406,12 +421,40 @@ export default function PreviewPage() {
         </ul>
         <div className="mt-auto pt-8 border-t border-white/20 print:hidden space-y-2">
           <div className="relative group">
-            <button className="w-full py-3 px-4 text-sm bg-white/10 transition-all flex items-center justify-center gap-2 opacity-60 cursor-default">
-              🔒 Download PDF
-            </button>
-            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-              Included with full purchase
-            </div>
+            {isTestUnlocked ? (
+              <button
+                onClick={async () => {
+                  try {
+                    const response = await fetch(`/api/generate-pdf?id=${params.id}`)
+                    if (response.ok) {
+                      const blob = await response.blob()
+                      const url = window.URL.createObjectURL(blob)
+                      const a = document.createElement('a')
+                      a.href = url
+                      a.download = `audit-${hostname}.pdf`
+                      document.body.appendChild(a)
+                      a.click()
+                      window.URL.revokeObjectURL(url)
+                      document.body.removeChild(a)
+                    }
+                  } catch (err) {
+                    console.error('PDF download failed:', err)
+                  }
+                }}
+                className="w-full py-3 px-4 text-sm bg-white text-[var(--accent)] font-semibold transition-all flex items-center justify-center gap-2 opacity-100 cursor-pointer hover:bg-white/90"
+              >
+                📄 Download PDF
+              </button>
+            ) : (
+              <>
+                <button className="w-full py-3 px-4 text-sm bg-white/10 transition-all flex items-center justify-center gap-2 opacity-60 cursor-default">
+                  🔒 Download PDF
+                </button>
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                  Included with full purchase
+                </div>
+              </>
+            )}
           </div>
           <Link
             href="/"
@@ -462,7 +505,7 @@ export default function PreviewPage() {
                   <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" strokeLinecap="round" strokeLinejoin="round"/>
                   <polyline points="22,6 12,13 2,6" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
-                Email
+                Share via email
               </button>
               <button
                 onClick={() => {
@@ -475,7 +518,7 @@ export default function PreviewPage() {
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
                   <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
                 </svg>
-                LinkedIn
+                Share on LinkedIn
               </button>
               <button
                 onClick={async () => {
@@ -489,7 +532,7 @@ export default function PreviewPage() {
                   <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" strokeLinecap="round" strokeLinejoin="round"/>
                   <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
-                Copy link
+                Copy share link
               </button>
             </div>
           </div>
@@ -576,13 +619,25 @@ export default function PreviewPage() {
                           <div className="flex-1">
                             <div className="flex flex-wrap items-center gap-3 mb-2">
                               <h3 className="text-subsection">{issue.title}</h3>
-                              <span className={`text-xs px-2 py-1 rounded font-bold uppercase tracking-wide ${
-                                issue.severity === 'critical' ? 'bg-red-100 text-red-700' :
-                                issue.severity === 'warning' ? 'bg-yellow-100 text-yellow-700' :
-                                'bg-green-100 text-green-700'
-                              }`}>
-                                {issue.severity === 'critical' ? '🔴' : issue.severity === 'warning' ? '🟡' : '🟢'} {issue.severity}
-                              </span>
+                              <Tooltip
+                                content={
+                                  issue.severity === 'critical'
+                                    ? 'Critical - Actively hurting conversion rate. Address within 30 days.'
+                                    : issue.severity === 'warning'
+                                    ? 'Warning - Creates friction in buyer journey. Address within 60 days.'
+                                    : 'Polish - Refinement opportunity for competitive positioning.'
+                                }
+                              >
+                                <span
+                                  className={`text-xs px-2 py-1 rounded font-bold uppercase tracking-wide cursor-pointer ${
+                                    issue.severity === 'critical' ? 'bg-red-100 text-red-700' :
+                                    issue.severity === 'warning' ? 'bg-yellow-100 text-yellow-700' :
+                                    'bg-green-100 text-green-700'
+                                  }`}
+                                >
+                                  {issue.severity === 'critical' ? '🔴' : issue.severity === 'warning' ? '🟡' : '🟢'} {issue.severity}
+                                </span>
+                              </Tooltip>
                             </div>
                             <p className="text-body text-[var(--muted-foreground)]">{issue.description}</p>
                           </div>
@@ -597,11 +652,6 @@ export default function PreviewPage() {
                               <div className="space-y-6">
                                 {issue.findings.map((finding, findingIndex) => (
                                   <div key={findingIndex} className="border-2 border-[var(--border)] rounded-lg overflow-hidden">
-                                    <div className="bg-[var(--muted)] px-4 py-2 border-b border-[var(--border)]">
-                                      <span className="text-xs font-bold text-[var(--muted-foreground)]">
-                                        Option {findingIndex + 1}
-                                      </span>
-                                    </div>
                                     <div className="grid md:grid-cols-2 gap-0">
                                       <div className="p-4 bg-red-50 border-r border-[var(--border)]">
                                         <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT - on your site</p>
@@ -643,7 +693,7 @@ export default function PreviewPage() {
                                   ? 'bg-red-50 border-red-500'
                                   : issue.severity === 'warning'
                                   ? 'bg-amber-50 border-amber-500'
-                                  : 'bg-blue-50 border-blue-500'
+                                  : 'bg-slate-50 border-slate-400'
                               }`}>
                                 <p className="text-sm text-[var(--foreground)] mb-2">
                                   <strong>Why this matters:</strong> {
@@ -689,11 +739,22 @@ export default function PreviewPage() {
                 </p>
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {scoreCategories.map((cat) => {
-                    // Generate a score based on commodity score + category
-                    const baseScore = preview?.commodityScore || 65
-                    const variance = { 'firstImpression': -10, 'differentiation': -20, 'customerClarity': -5, 'storyStructure': -25, 'trustSignals': 5, 'buttonClarity': -15 }
-                    const rawScore = Math.round((100 - baseScore) / 10 + (variance[cat.key as keyof typeof variance] || 0) / 10)
-                    const score = Math.max(2, Math.min(9, rawScore))
+                    // Use AI-generated category scores if available, otherwise derive from overall with variance
+                    const aiScore = preview?.categoryScores?.[cat.key as keyof typeof preview.categoryScores]
+                    // Add variance per category so fallback scores aren't all identical
+                    const categoryVariance: Record<string, number> = {
+                      firstImpression: 0,
+                      differentiation: -1,
+                      customerClarity: 1,
+                      storyStructure: -1,
+                      trustSignals: 1,
+                      buttonClarity: 0,
+                    }
+                    const baseScore = Math.round((preview?.commodityScore || 50) / 12.5)
+                    const variance = categoryVariance[cat.key] || 0
+                    const score = aiScore !== undefined
+                      ? Math.max(1, Math.min(10, aiScore))
+                      : Math.max(1, Math.min(10, baseScore + variance))
                     const color = score >= 7 ? 'excellent' : score >= 5 ? 'moderate' : 'poor'
                     const label = score >= 7 ? 'Strong' : score >= 5 ? 'Needs work' : 'Critical'
                     // Map score categories to detail views
@@ -734,6 +795,7 @@ export default function PreviewPage() {
             </section>
 
             {/* Unlock CTA */}
+            {!isTestUnlocked && (
             <section className="bg-[var(--accent)] text-white py-12 md:py-16">
               <div className="container">
                 <div className="max-w-3xl mx-auto">
@@ -772,6 +834,7 @@ export default function PreviewPage() {
                 </div>
               </div>
             </section>
+            )}
 
             {/* Next section CTA */}
             <section className="section border-t-2 border-[var(--border)]">
@@ -931,7 +994,51 @@ export default function PreviewPage() {
                 </div>
                 <div>
                   <h3 className="text-subsection mb-4">What to do</h3>
-                  <LockedFindings onUnlock={handleUnlock} />
+                  {isTestUnlocked && preview.topIssues[1]?.findings && preview.topIssues[1].findings.length > 0 ? (
+                    <div className="space-y-4">
+                      <p className="text-xs font-bold text-[var(--accent)] uppercase tracking-wide">
+                        Copy-paste fixes for message structure ({preview.topIssues[1].findings.length} option{preview.topIssues[1].findings.length !== 1 ? 's' : ''}):
+                      </p>
+                      {preview.topIssues[1].findings.slice(0, 3).map((finding, idx) => (
+                        <div key={idx} className="border-2 border-[var(--border)] rounded-lg overflow-hidden">
+                          <div className="grid md:grid-cols-2 gap-0">
+                            <div className="p-4 bg-red-50 border-r border-[var(--border)]">
+                              <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT</p>
+                              <p className="text-sm text-[var(--foreground)]">{finding.phrase}</p>
+                              <p className="text-xs text-[var(--muted-foreground)] mt-2">Found: {finding.location}</p>
+                            </div>
+                            <div className="p-4 bg-green-50">
+                              <div className="flex justify-between items-start gap-2 mb-2">
+                                <p className="text-xs font-bold text-green-600">✓ REWRITE</p>
+                                <button
+                                  onClick={async () => {
+                                    await navigator.clipboard.writeText(finding.rewrite)
+                                  }}
+                                  className="text-xs px-2 py-0.5 bg-white border border-green-300 rounded hover:bg-green-100 transition-colors text-green-700 font-medium"
+                                >
+                                  Copy
+                                </button>
+                              </div>
+                              <p className="text-sm text-[var(--foreground)]">{finding.rewrite}</p>
+                            </div>
+                          </div>
+                          <div className="p-3 bg-[var(--muted)] border-t border-[var(--border)]">
+                            <p className="text-sm text-[var(--foreground)]">
+                              <strong>Why:</strong> {finding.problem}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : isTestUnlocked ? (
+                    <div className="p-6 bg-[var(--muted)] border-2 border-[var(--border)] rounded text-center">
+                      <p className="text-body text-[var(--muted-foreground)]">
+                        No message structure findings in this audit.
+                      </p>
+                    </div>
+                  ) : (
+                    <LockedFindings onUnlock={handleUnlock} isUnlocked={isTestUnlocked} />
+                  )}
                 </div>
               </div>
             </section>
@@ -976,7 +1083,51 @@ export default function PreviewPage() {
                 </div>
                 <div>
                   <h3 className="text-subsection mb-4">What to do</h3>
-                  <LockedFindings onUnlock={handleUnlock} />
+                  {isTestUnlocked && preview.topIssues[2]?.findings && preview.topIssues[2].findings.length > 0 ? (
+                    <div className="space-y-4">
+                      <p className="text-xs font-bold text-[var(--accent)] uppercase tracking-wide">
+                        Copy-paste fixes for customer clarity ({preview.topIssues[2].findings.length} option{preview.topIssues[2].findings.length !== 1 ? 's' : ''}):
+                      </p>
+                      {preview.topIssues[2].findings.slice(0, 3).map((finding, idx) => (
+                        <div key={idx} className="border-2 border-[var(--border)] rounded-lg overflow-hidden">
+                          <div className="grid md:grid-cols-2 gap-0">
+                            <div className="p-4 bg-red-50 border-r border-[var(--border)]">
+                              <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT</p>
+                              <p className="text-sm text-[var(--foreground)]">{finding.phrase}</p>
+                              <p className="text-xs text-[var(--muted-foreground)] mt-2">Found: {finding.location}</p>
+                            </div>
+                            <div className="p-4 bg-green-50">
+                              <div className="flex justify-between items-start gap-2 mb-2">
+                                <p className="text-xs font-bold text-green-600">✓ REWRITE</p>
+                                <button
+                                  onClick={async () => {
+                                    await navigator.clipboard.writeText(finding.rewrite)
+                                  }}
+                                  className="text-xs px-2 py-0.5 bg-white border border-green-300 rounded hover:bg-green-100 transition-colors text-green-700 font-medium"
+                                >
+                                  Copy
+                                </button>
+                              </div>
+                              <p className="text-sm text-[var(--foreground)]">{finding.rewrite}</p>
+                            </div>
+                          </div>
+                          <div className="p-3 bg-[var(--muted)] border-t border-[var(--border)]">
+                            <p className="text-sm text-[var(--foreground)]">
+                              <strong>Why:</strong> {finding.problem}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : isTestUnlocked ? (
+                    <div className="p-6 bg-[var(--muted)] border-2 border-[var(--border)] rounded text-center">
+                      <p className="text-body text-[var(--muted-foreground)]">
+                        No customer clarity findings in this audit.
+                      </p>
+                    </div>
+                  ) : (
+                    <LockedFindings onUnlock={handleUnlock} isUnlocked={isTestUnlocked} />
+                  )}
                 </div>
               </div>
             </section>
@@ -1011,7 +1162,51 @@ export default function PreviewPage() {
                 </div>
                 <div>
                   <h3 className="text-subsection mb-4">What to do</h3>
-                  <LockedFindings onUnlock={handleUnlock} />
+                  {isTestUnlocked && preview.topIssues[3]?.findings && preview.topIssues[3].findings.length > 0 ? (
+                    <div className="space-y-4">
+                      <p className="text-xs font-bold text-[var(--accent)] uppercase tracking-wide">
+                        Copy-paste fixes for differentiation ({preview.topIssues[3].findings.length} option{preview.topIssues[3].findings.length !== 1 ? 's' : ''}):
+                      </p>
+                      {preview.topIssues[3].findings.slice(0, 3).map((finding, idx) => (
+                        <div key={idx} className="border-2 border-[var(--border)] rounded-lg overflow-hidden">
+                          <div className="grid md:grid-cols-2 gap-0">
+                            <div className="p-4 bg-red-50 border-r border-[var(--border)]">
+                              <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT</p>
+                              <p className="text-sm text-[var(--foreground)]">{finding.phrase}</p>
+                              <p className="text-xs text-[var(--muted-foreground)] mt-2">Found: {finding.location}</p>
+                            </div>
+                            <div className="p-4 bg-green-50">
+                              <div className="flex justify-between items-start gap-2 mb-2">
+                                <p className="text-xs font-bold text-green-600">✓ REWRITE</p>
+                                <button
+                                  onClick={async () => {
+                                    await navigator.clipboard.writeText(finding.rewrite)
+                                  }}
+                                  className="text-xs px-2 py-0.5 bg-white border border-green-300 rounded hover:bg-green-100 transition-colors text-green-700 font-medium"
+                                >
+                                  Copy
+                                </button>
+                              </div>
+                              <p className="text-sm text-[var(--foreground)]">{finding.rewrite}</p>
+                            </div>
+                          </div>
+                          <div className="p-3 bg-[var(--muted)] border-t border-[var(--border)]">
+                            <p className="text-sm text-[var(--foreground)]">
+                              <strong>Why:</strong> {finding.problem}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : isTestUnlocked ? (
+                    <div className="p-6 bg-[var(--muted)] border-2 border-[var(--border)] rounded text-center">
+                      <p className="text-body text-[var(--muted-foreground)]">
+                        No differentiation findings in this audit.
+                      </p>
+                    </div>
+                  ) : (
+                    <LockedFindings onUnlock={handleUnlock} isUnlocked={isTestUnlocked} />
+                  )}
                 </div>
               </div>
             </section>
@@ -1054,7 +1249,51 @@ export default function PreviewPage() {
                 </div>
                 <div>
                   <h3 className="text-subsection mb-4">What to do</h3>
-                  <LockedFindings onUnlock={handleUnlock} />
+                  {isTestUnlocked && preview.topIssues[4]?.findings && preview.topIssues[4].findings.length > 0 ? (
+                    <div className="space-y-4">
+                      <p className="text-xs font-bold text-[var(--accent)] uppercase tracking-wide">
+                        Copy-paste fixes for trust signals ({preview.topIssues[4].findings.length} option{preview.topIssues[4].findings.length !== 1 ? 's' : ''}):
+                      </p>
+                      {preview.topIssues[4].findings.slice(0, 3).map((finding, idx) => (
+                        <div key={idx} className="border-2 border-[var(--border)] rounded-lg overflow-hidden">
+                          <div className="grid md:grid-cols-2 gap-0">
+                            <div className="p-4 bg-red-50 border-r border-[var(--border)]">
+                              <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT</p>
+                              <p className="text-sm text-[var(--foreground)]">{finding.phrase}</p>
+                              <p className="text-xs text-[var(--muted-foreground)] mt-2">Found: {finding.location}</p>
+                            </div>
+                            <div className="p-4 bg-green-50">
+                              <div className="flex justify-between items-start gap-2 mb-2">
+                                <p className="text-xs font-bold text-green-600">✓ REWRITE</p>
+                                <button
+                                  onClick={async () => {
+                                    await navigator.clipboard.writeText(finding.rewrite)
+                                  }}
+                                  className="text-xs px-2 py-0.5 bg-white border border-green-300 rounded hover:bg-green-100 transition-colors text-green-700 font-medium"
+                                >
+                                  Copy
+                                </button>
+                              </div>
+                              <p className="text-sm text-[var(--foreground)]">{finding.rewrite}</p>
+                            </div>
+                          </div>
+                          <div className="p-3 bg-[var(--muted)] border-t border-[var(--border)]">
+                            <p className="text-sm text-[var(--foreground)]">
+                              <strong>Why:</strong> {finding.problem}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : isTestUnlocked ? (
+                    <div className="p-6 bg-[var(--muted)] border-2 border-[var(--border)] rounded text-center">
+                      <p className="text-body text-[var(--muted-foreground)]">
+                        No trust signal findings in this audit.
+                      </p>
+                    </div>
+                  ) : (
+                    <LockedFindings onUnlock={handleUnlock} isUnlocked={isTestUnlocked} />
+                  )}
                 </div>
               </div>
             </section>
@@ -1089,7 +1328,51 @@ export default function PreviewPage() {
                 </div>
                 <div>
                   <h3 className="text-subsection mb-4">What to do</h3>
-                  <LockedFindings onUnlock={handleUnlock} />
+                  {isTestUnlocked && preview.topIssues[5]?.findings && preview.topIssues[5].findings.length > 0 ? (
+                    <div className="space-y-4">
+                      <p className="text-xs font-bold text-[var(--accent)] uppercase tracking-wide">
+                        Copy-paste fixes for CTAs ({preview.topIssues[5].findings.length} option{preview.topIssues[5].findings.length !== 1 ? 's' : ''}):
+                      </p>
+                      {preview.topIssues[5].findings.slice(0, 3).map((finding, idx) => (
+                        <div key={idx} className="border-2 border-[var(--border)] rounded-lg overflow-hidden">
+                          <div className="grid md:grid-cols-2 gap-0">
+                            <div className="p-4 bg-red-50 border-r border-[var(--border)]">
+                              <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT</p>
+                              <p className="text-sm text-[var(--foreground)]">{finding.phrase}</p>
+                              <p className="text-xs text-[var(--muted-foreground)] mt-2">Found: {finding.location}</p>
+                            </div>
+                            <div className="p-4 bg-green-50">
+                              <div className="flex justify-between items-start gap-2 mb-2">
+                                <p className="text-xs font-bold text-green-600">✓ REWRITE</p>
+                                <button
+                                  onClick={async () => {
+                                    await navigator.clipboard.writeText(finding.rewrite)
+                                  }}
+                                  className="text-xs px-2 py-0.5 bg-white border border-green-300 rounded hover:bg-green-100 transition-colors text-green-700 font-medium"
+                                >
+                                  Copy
+                                </button>
+                              </div>
+                              <p className="text-sm text-[var(--foreground)]">{finding.rewrite}</p>
+                            </div>
+                          </div>
+                          <div className="p-3 bg-[var(--muted)] border-t border-[var(--border)]">
+                            <p className="text-sm text-[var(--foreground)]">
+                              <strong>Why:</strong> {finding.problem}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : isTestUnlocked ? (
+                    <div className="p-6 bg-[var(--muted)] border-2 border-[var(--border)] rounded text-center">
+                      <p className="text-body text-[var(--muted-foreground)]">
+                        No CTA findings in this audit.
+                      </p>
+                    </div>
+                  ) : (
+                    <LockedFindings onUnlock={handleUnlock} isUnlocked={isTestUnlocked} />
+                  )}
                 </div>
               </div>
             </section>
@@ -1151,7 +1434,51 @@ export default function PreviewPage() {
                 </div>
                 <div>
                   <h3 className="text-subsection mb-4">Get all rewrites</h3>
-                  <LockedFindings onUnlock={handleUnlock} />
+                  {isTestUnlocked && preview.topIssues.slice(6).flatMap(issue => issue.findings || []).length > 0 ? (
+                    <div className="space-y-4">
+                      <p className="text-xs font-bold text-[var(--accent)] uppercase tracking-wide">
+                        Additional copy fixes ({preview.topIssues.slice(6).flatMap(issue => issue.findings || []).length} option{preview.topIssues.slice(6).flatMap(issue => issue.findings || []).length !== 1 ? 's' : ''}):
+                      </p>
+                      {preview.topIssues.slice(6).flatMap(issue => issue.findings || []).slice(0, 5).map((finding, idx) => (
+                        <div key={idx} className="border-2 border-[var(--border)] rounded-lg overflow-hidden">
+                          <div className="grid md:grid-cols-2 gap-0">
+                            <div className="p-4 bg-red-50 border-r border-[var(--border)]">
+                              <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT</p>
+                              <p className="text-sm text-[var(--foreground)]">{finding.phrase}</p>
+                              <p className="text-xs text-[var(--muted-foreground)] mt-2">Found: {finding.location}</p>
+                            </div>
+                            <div className="p-4 bg-green-50">
+                              <div className="flex justify-between items-start gap-2 mb-2">
+                                <p className="text-xs font-bold text-green-600">✓ REWRITE</p>
+                                <button
+                                  onClick={async () => {
+                                    await navigator.clipboard.writeText(finding.rewrite)
+                                  }}
+                                  className="text-xs px-2 py-0.5 bg-white border border-green-300 rounded hover:bg-green-100 transition-colors text-green-700 font-medium"
+                                >
+                                  Copy
+                                </button>
+                              </div>
+                              <p className="text-sm text-[var(--foreground)]">{finding.rewrite}</p>
+                            </div>
+                          </div>
+                          <div className="p-3 bg-[var(--muted)] border-t border-[var(--border)]">
+                            <p className="text-sm text-[var(--foreground)]">
+                              <strong>Why:</strong> {finding.problem}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : isTestUnlocked ? (
+                    <div className="p-6 bg-[var(--muted)] border-2 border-[var(--border)] rounded text-center">
+                      <p className="text-body text-[var(--muted-foreground)]">
+                        All rewrites shown in previous sections.
+                      </p>
+                    </div>
+                  ) : (
+                    <LockedFindings onUnlock={handleUnlock} isUnlocked={isTestUnlocked} />
+                  )}
                 </div>
               </div>
             </section>
@@ -1314,7 +1641,7 @@ export default function PreviewPage() {
                 )}
 
                 {/* Gated deeper analysis - only when we have competitor data */}
-                {data.competitorComparison.detailedScores && data.competitorComparison.detailedScores.length > 0 && (
+                {data.competitorComparison.detailedScores && data.competitorComparison.detailedScores.length > 0 && !isTestUnlocked && (
                 <div className="mb-8">
                   <h3 className="text-subsection mb-4">What you can steal</h3>
                   <div className="p-6 bg-[var(--muted)] border-2 border-dashed border-[var(--border)] rounded">
@@ -1363,6 +1690,55 @@ export default function PreviewPage() {
                   </div>
                 </div>
                 )}
+
+                {/* Unlocked competitive analysis */}
+                {data.competitorComparison.detailedScores && data.competitorComparison.detailedScores.length > 0 && isTestUnlocked && (
+                <div className="mb-8">
+                  <h3 className="text-subsection mb-4">What you can steal</h3>
+                  <div className="space-y-6">
+                    {data.competitorComparison.detailedScores.map((competitor, idx) => (
+                      <div key={idx} className="p-6 bg-[var(--muted)] border border-[var(--border)] rounded">
+                        <div className="flex items-center justify-between mb-4">
+                          <h4 className="font-semibold text-[var(--foreground)]">{competitor.name}</h4>
+                          <span className={`text-sm font-medium px-2 py-1 rounded ${
+                            competitor.score > (preview?.commodityScore || 50)
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-green-100 text-green-800'
+                          }`}>
+                            Score: {competitor.score}
+                          </span>
+                        </div>
+                        {competitor.strengths && competitor.strengths.length > 0 && (
+                          <div className="mb-4">
+                            <p className="text-sm font-medium text-[var(--foreground)] mb-2">Their strengths to learn from:</p>
+                            <ul className="space-y-1">
+                              {competitor.strengths.map((strength, sIdx) => (
+                                <li key={sIdx} className="text-sm text-[var(--muted-foreground)] flex items-start gap-2">
+                                  <span className="text-green-600 mt-0.5">→</span>
+                                  <span>{strength}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {competitor.weaknesses && competitor.weaknesses.length > 0 && (
+                          <div>
+                            <p className="text-sm font-medium text-[var(--foreground)] mb-2">Where you can beat them:</p>
+                            <ul className="space-y-1">
+                              {competitor.weaknesses.map((weakness, wIdx) => (
+                                <li key={wIdx} className="text-sm text-[var(--muted-foreground)] flex items-start gap-2">
+                                  <span className="text-[var(--accent)] mt-0.5">→</span>
+                                  <span>{weakness}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                )}
                   </>
                 )}
               </div>
@@ -1378,11 +1754,22 @@ export default function PreviewPage() {
         const cat = scoreCategories.find(c => c.key === openScorecard)
         if (!cat) return null
 
-        // Calculate score (same logic as in the cards)
-        const baseScore = preview?.commodityScore || 65
-        const variance = { 'firstImpression': -10, 'differentiation': -20, 'customerClarity': -5, 'storyStructure': -25, 'trustSignals': 5, 'buttonClarity': -15 }
-        const rawScore = Math.round((100 - baseScore) / 10 + (variance[cat.key as keyof typeof variance] || 0) / 10)
-        const score = Math.max(2, Math.min(9, rawScore))
+        // Calculate score (use AI-generated category scores if available, otherwise derive from overall with variance)
+        const aiScore = preview?.categoryScores?.[cat.key as keyof typeof preview.categoryScores]
+        // Add variance per category so fallback scores aren't all identical
+        const categoryVariance: Record<string, number> = {
+          firstImpression: 0,
+          differentiation: -1,
+          customerClarity: 1,
+          storyStructure: -1,
+          trustSignals: 1,
+          buttonClarity: 0,
+        }
+        const baseScore = Math.round((preview?.commodityScore || 50) / 12.5)
+        const variance = categoryVariance[cat.key] || 0
+        const score = aiScore !== undefined
+          ? Math.max(1, Math.min(10, aiScore))
+          : Math.max(1, Math.min(10, baseScore + variance))
         const color = score >= 7 ? 'excellent' : score >= 5 ? 'moderate' : 'poor'
         const label = score >= 7 ? 'Strong' : score >= 5 ? 'Needs work' : 'Critical'
 
