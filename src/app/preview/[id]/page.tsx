@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { ViewNavBar } from '@/components/ViewNavBar'
 import { Footer } from '@/components/Footer'
 import { Tooltip } from '@/components/Tooltip'
+import { formatCompanyName, safeClipboardWrite, escapeHtml } from '@/lib/utils'
 
 // Types for API response
 interface Finding {
@@ -29,8 +30,14 @@ interface PreviewData {
   siteSnapshot: {
     title: string
     description: string
+    h1?: string  // Main H1 headline for comparison
     hasLinkedIn: boolean
     pagesFound: string[]
+    spaWarning?: {
+      isSPA: boolean
+      indicators: string[]
+      message: string
+    }
   }
   // Legacy single teaser
   teaserFinding?: Finding
@@ -53,7 +60,20 @@ interface CompetitorComparison {
   yourScore: number
   averageScore: number
   gaps: string[]
-  detailedScores?: Array<{ url: string; score: number }>
+  detailedScores?: Array<{
+    url: string;
+    score: number;
+    categoryScores?: {
+      firstImpression: number;
+      differentiation: number;
+      customerClarity: number;
+      storyStructure: number;
+      trustSignals: number;
+      buttonClarity: number;
+    };
+    strengths?: string[];
+    weaknesses?: string[];
+  }>
 }
 
 interface AnalysisResponse {
@@ -66,7 +86,7 @@ interface AnalysisResponse {
   socialUrls?: string[]
 }
 
-type ViewType = 'overview' | 'message' | 'audience' | 'trust' | 'copy' | 'competitors'
+type ViewType = 'overview' | 'message' | 'audience' | 'trust' | 'copy' | 'competitors' | 'resources'
 
 // View icons (Streamline-style, 1px stroke)
 const viewIcons: Record<ViewType, React.ReactNode> = {
@@ -110,6 +130,13 @@ const viewIcons: Record<ViewType, React.ReactNode> = {
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   ),
+  resources: (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+      <line x1="12" y1="22.08" x2="12" y2="12" />
+    </svg>
+  ),
 }
 
 const baseViews = [
@@ -121,6 +148,7 @@ const baseViews = [
 ]
 
 const competitorsView = { id: 'competitors' as ViewType, label: 'Competitors', description: 'How you stack up against the competition' }
+const resourcesView = { id: 'resources' as ViewType, label: 'Resources', description: 'Swipe file, copywriter brief, and export tools' }
 
 // Score categories for display
 const scoreCategories = [
@@ -168,6 +196,65 @@ function getScoreBorderClass(score: number): string {
   return 'border-red-600'
 }
 
+// Map section types to issue title keywords for matching
+// This ensures findings appear under the correct section regardless of AI response order
+type SectionType = 'positioning' | 'valueProps' | 'proofPoints' | 'socialProof' | 'ctas' | 'audience' | 'differentiators' | 'trustSignals' | 'features' | 'about'
+
+const sectionKeywords: Record<SectionType, string[]> = {
+  positioning: ['positioning', 'hero', 'headline', 'generic positioning', 'vague positioning', 'generic hero', 'weak positioning'],
+  valueProps: ['value proposition', 'vague value', 'subhead', 'missing value', 'weak value', 'value prop'],
+  proofPoints: ['proof point', 'proof points', 'missing proof', 'buried proof', 'hidden proof', 'weak proof'],
+  socialProof: ['social proof', 'weak social', 'testimonial', 'missing social', 'no social'],
+  ctas: ['cta', 'call-to-action', 'call to action', 'generic cta', 'button', 'missing cta', 'weak cta'],
+  audience: ['target audience', 'unclear target', 'audience', 'who is this for', 'missing target', 'unclear audience', 'no clear audience'],
+  differentiators: ['differentiator', 'missing differentiator', 'why choose', 'differentiation', 'weak differentiator', 'no differentiator'],
+  trustSignals: ['trust signal', 'trust gap', 'trust gaps', 'certification', 'award', 'validation', 'missing trust'],
+  features: ['feature-first', 'feature first', 'features instead', 'leading with feature', 'feature driven', 'features over', 'feature focused'],
+  about: ['about', 'team messaging', 'company description', 'generic about', 'ineffective about', 'about page', 'team page', 'weak about'],
+}
+
+// Find an issue by matching its title to section keywords
+function findIssueBySection(issues: PreviewData['topIssues'], section: SectionType): PreviewData['topIssues'][0] | undefined {
+  if (!issues || issues.length === 0) return undefined
+
+  const keywords = sectionKeywords[section]
+  // Guard against invalid section type
+  if (!keywords) return undefined
+
+  return issues.find(issue => {
+    // Guard against null/undefined issue objects
+    if (!issue) return false
+    // Guard against missing title
+    const titleLower = (issue.title || '').toLowerCase()
+    return keywords.some(kw => titleLower.includes(kw))
+  })
+}
+
+// Get findings for a specific section
+// Strategy: Trust title matching first, use content scanning only as fallback
+function getFindingsForSection(issues: PreviewData['topIssues'], section: SectionType): Finding[] {
+  if (!issues || issues.length === 0) return []
+
+  const keywords = sectionKeywords[section]
+  if (!keywords) return []
+
+  // Primary: find issue by title match and return its findings
+  const issueByTitle = findIssueBySection(issues, section)
+  if (issueByTitle && issueByTitle.findings && issueByTitle.findings.length > 0) {
+    return issueByTitle.findings
+  }
+
+  // Fallback: if no title match found, scan ALL findings by content keywords
+  // This catches cases where AI used unexpected issue titles
+  const allFindings = issues.flatMap(issue => issue?.findings || [])
+  const contentMatchedFindings = allFindings.filter(f => {
+    const content = `${f.phrase || ''} ${f.problem || ''} ${f.location || ''}`.toLowerCase()
+    return keywords.some(kw => content.includes(kw))
+  })
+
+  return contentMatchedFindings.slice(0, 5)
+}
+
 // Locked findings component
 function LockedFindings({
   onUnlock,
@@ -189,18 +276,25 @@ function LockedFindings({
           <p className="text-xs font-bold text-[var(--accent)] mb-3">REAL FINDING FROM YOUR SITE:</p>
           <div className="grid md:grid-cols-2 gap-4">
             <div className="p-3 bg-red-50 border-l-4 border-red-400">
-              <p className="text-xs font-bold text-red-600 mb-1">❌ ON YOUR SITE NOW</p>
+              <p className="text-xs font-bold text-red-600 mb-1">❌ CURRENT</p>
               <p className="text-sm italic text-[var(--foreground)]">&quot;{teaserFinding.phrase}&quot;</p>
-              <p className="text-xs text-[var(--muted-foreground)] mt-2">Found: {teaserFinding.location}</p>
+              <p className="text-xs text-[var(--muted-foreground)] mt-2">
+                Found: {teaserFinding.location}
+                {teaserFinding.pageUrl && (
+                  <a href={teaserFinding.pageUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                  </a>
+                )}
+              </p>
             </div>
             <div className="p-3 bg-green-50 border-l-4 border-green-500">
               <div className="flex justify-between items-start gap-2 mb-1">
                 <p className="text-xs font-bold text-green-600">✓ SUGGESTED REWRITE</p>
                 <button
                   onClick={async () => {
-                    await navigator.clipboard.writeText(teaserFinding.rewrite)
+                    const result = await safeClipboardWrite(teaserFinding.rewrite)
                     const el = document.getElementById('copy-rewrite-btn')
-                    if (el) { el.textContent = '✓ Copied'; setTimeout(() => { el.textContent = 'Copy' }, 1500) }
+                    if (el) { el.textContent = result.success ? '✓ Copied' : '✗ Failed'; setTimeout(() => { el.textContent = 'Copy' }, 1500) }
                   }}
                   id="copy-rewrite-btn"
                   className="text-xs px-2 py-0.5 bg-white border border-green-300 rounded hover:bg-green-100 transition-colors text-green-700 font-medium"
@@ -251,6 +345,7 @@ export default function PreviewPage() {
   const [currentView, setCurrentView] = useState<ViewType>('overview')
   const [expandedIssue, setExpandedIssue] = useState<number | null>(0)
   const [openScorecard, setOpenScorecard] = useState<string | null>(null)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   // Editable input fields
   const [editableUrl, setEditableUrl] = useState('')
@@ -262,7 +357,8 @@ export default function PreviewPage() {
 
   // Always show competitors tab - we'll find them or prompt user
   const hasCompetitorData = data?.competitorComparison && data.competitorComparison.detailedScores && data.competitorComparison.detailedScores.length > 0
-  const views = [...baseViews, competitorsView]
+  // Resources view always visible (tease value to free users)
+  const views = [...baseViews, competitorsView, resourcesView]
 
   useEffect(() => {
     const fetchPreview = async () => {
@@ -357,6 +453,535 @@ export default function PreviewPage() {
   const prevView = currentViewIndex > 0 ? views[currentViewIndex - 1] : null
   const nextView = currentViewIndex < views.length - 1 ? views[currentViewIndex + 1] : null
 
+  const handleDownloadPDF = async () => {
+    try {
+      const html2pdf = (await import('html2pdf.js')).default
+
+      // Category display names
+      const catNames: Record<string, string> = {
+        firstImpression: 'First Impression',
+        differentiation: 'Differentiation',
+        customerClarity: 'Customer Clarity',
+        storyStructure: 'Story Structure',
+        trustSignals: 'Trust Signals',
+        buttonClarity: 'CTA Clarity'
+      }
+
+      // Simple severity color (just text color, no fancy badges)
+      const getSeverityColor = (sev: string) => {
+        if (sev === 'critical') return '#c00'
+        if (sev === 'major' || sev === 'warning') return '#b45309'
+        return '#666'
+      }
+
+      // Score color for table
+      const getScoreColor = (score: number) => {
+        if (score >= 7) return '#166534'
+        if (score >= 4) return '#b45309'
+        return '#c00'
+      }
+
+      // Proper company name - prefer clean name over hostname with domain
+      const displayName = companyName && companyName !== hostname.split('.')[0] ? companyName : hostname
+      const totalRewrites = preview.topIssues.reduce((acc: number, issue: { findings?: unknown[] }) => acc + (issue.findings?.length || 0), 0)
+
+      // Build simple category scores table
+      const categoryScoresHtml = preview.categoryScores
+        ? Object.entries(preview.categoryScores).map(([key, val]) => `
+            <tr>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #ddd;">${catNames[key] || key}</td>
+              <td style="padding: 8px 12px; border-bottom: 1px solid #ddd; text-align: right; font-weight: bold; color: ${getScoreColor(val as number)};">${val}/10</td>
+            </tr>
+          `).join('')
+        : ''
+
+      // Build ALL issues HTML - no slice limits, include every finding
+      const issuesHtml = preview.topIssues.slice(0, 6).map((issue: { title: string; severity: string; description: string; findings?: { phrase: string; rewrite: string; problem?: string; location?: string; pageUrl?: string }[] }, i: number) => `
+        <div style="margin-bottom: 24px; page-break-inside: avoid;">
+          <h3 style="font-size: 14px; margin: 0 0 4px 0; color: #111;">
+            ${i + 1}. ${escapeHtml(issue.title)}
+            <span style="font-size: 11px; font-weight: normal; color: ${getSeverityColor(issue.severity)}; text-transform: uppercase; margin-left: 8px;">[${issue.severity}]</span>
+          </h3>
+          <p style="color: #555; font-size: 12px; margin: 0 0 12px 0;">${escapeHtml(issue.description)}</p>
+          ${(issue.findings || []).length > 0 ? (issue.findings || []).map((f: { phrase: string; rewrite: string; problem?: string; location?: string; pageUrl?: string }) => `
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 12px; table-layout: fixed;">
+              <tr>
+                <td style="width: 80px; padding: 8px; background: #f5f5f5; border: 1px solid #ddd; font-weight: bold; color: #666; vertical-align: top;">Before</td>
+                <td style="padding: 8px; border: 1px solid #ddd; color: #666; word-wrap: break-word; overflow-wrap: break-word;">${escapeHtml(f.phrase)}</td>
+              </tr>
+              <tr>
+                <td style="width: 80px; padding: 8px; background: #f0f9f0; border: 1px solid #ddd; font-weight: bold; color: #166534; vertical-align: top;">After</td>
+                <td style="padding: 8px; border: 1px solid #ddd; color: #111; word-wrap: break-word; overflow-wrap: break-word;">${escapeHtml(f.rewrite)}</td>
+              </tr>
+              ${f.location ? `<tr><td colspan="2" style="padding: 4px 8px; border: 1px solid #ddd; font-size: 10px; color: #888; font-style: italic;">Found: ${escapeHtml(f.location)}${f.pageUrl ? ` (${escapeHtml(new URL(f.pageUrl).pathname)})` : ''}</td></tr>` : ''}
+            </table>
+          `).join('') : '<p style="color: #888; font-size: 11px; font-style: italic; margin: 0;">No specific rewrites for this issue - review the description above for guidance.</p>'}
+        </div>
+      `).join('')
+
+      // Build "Copy you can use" section - issues 6+ with quick wins
+      const copyIssues = preview.topIssues.slice(6)
+      const copySectionHtml = copyIssues.length > 0 && copyIssues.some((i: { findings?: unknown[] }) => (i.findings?.length || 0) > 0)
+        ? `
+          <div style="page-break-before: always;">
+            <h2 style="font-size: 16px; font-weight: bold; margin: 0 0 8px 0; padding-bottom: 8px; border-bottom: 2px solid #333;">Copy You Can Use Today</h2>
+            <p style="font-size: 12px; color: #555; margin: 0 0 16px 0;">Quick wins beyond the critical issues. These rewrites address secondary messaging gaps you can fix today while planning the bigger changes above.</p>
+            ${copyIssues.map((issue: { title: string; severity: string; description: string; findings?: { phrase: string; rewrite: string; problem?: string; location?: string; pageUrl?: string }[] }, i: number) =>
+              (issue.findings?.length || 0) > 0 ? `
+              <div style="margin-bottom: 20px; page-break-inside: avoid;">
+                <h3 style="font-size: 13px; margin: 0 0 4px 0; color: #111;">
+                  ${escapeHtml(issue.title)}
+                  <span style="font-size: 10px; font-weight: normal; color: ${getSeverityColor(issue.severity)}; text-transform: uppercase; margin-left: 6px;">[${issue.severity}]</span>
+                </h3>
+                ${(issue.findings || []).map((f: { phrase: string; rewrite: string; location?: string; pageUrl?: string }) => `
+                  <table style="width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 11px; table-layout: fixed;">
+                    <tr>
+                      <td style="width: 60px; padding: 6px; background: #f5f5f5; border: 1px solid #ddd; font-weight: bold; color: #666; vertical-align: top;">Before</td>
+                      <td style="padding: 6px; border: 1px solid #ddd; color: #666; word-wrap: break-word;">${escapeHtml(f.phrase)}</td>
+                    </tr>
+                    <tr>
+                      <td style="width: 60px; padding: 6px; background: #f0f9f0; border: 1px solid #ddd; font-weight: bold; color: #166534; vertical-align: top;">After</td>
+                      <td style="padding: 6px; border: 1px solid #ddd; color: #111; word-wrap: break-word;">${escapeHtml(f.rewrite)}</td>
+                    </tr>
+                  </table>
+                `).join('')}
+              </div>
+            ` : ''
+            ).join('')}
+          </div>
+        `
+        : ''
+
+      // Build trust signal checklist for PDF
+      const allPhrases = preview.topIssues
+        .flatMap((issue: { findings?: { phrase?: string }[] }) => issue.findings || [])
+        .map((f: { phrase?: string }) => f.phrase?.toLowerCase() || '')
+        .join(' ')
+
+      const trustSignals = [
+        { label: 'Customer count', found: /\d+[\+]?\s*(customers?|clients?|users?|teams?|companies|businesses)/i.test(allPhrases), suggestion: '"Trusted by X+ customers"' },
+        { label: 'Years in business', found: /(since|founded|established)\s*(19|20)\d{2}|\d+\+?\s*years/i.test(allPhrases), suggestion: '"Since 20XX" or "X+ years experience"' },
+        { label: 'Testimonials', found: /(testimonial|review|said|quot|\")/i.test(allPhrases), suggestion: 'Add customer quotes with names' },
+        { label: 'Case studies', found: /(case study|increased|improved|reduced|saved)\s*\d+/i.test(allPhrases), suggestion: '"Helped X achieve Y% improvement"' },
+        { label: 'Certifications', found: /(iso|soc|hipaa|certified|accredited|award)/i.test(allPhrases), suggestion: 'List certifications/awards visibly' },
+        { label: 'Guarantee', found: /(guarantee|warranty|money.?back|risk.?free)/i.test(allPhrases), suggestion: 'Add satisfaction guarantee' },
+        { label: 'Team visibility', found: /(team|founder|ceo|leadership|about us)/i.test(allPhrases), suggestion: 'Show real people with names' },
+        { label: 'Physical address', found: /\d+\s+[a-z]+\s+(st|street|ave|avenue|rd|road|blvd|way)|[a-z]+,\s*[a-z]{2}\s*\d{5}/i.test(allPhrases), suggestion: 'Display physical location' },
+      ]
+
+      const trustChecklistHtml = `
+        <div style="margin-bottom: 24px;">
+          <h2 style="font-size: 16px; font-weight: bold; margin: 0 0 12px 0; padding-bottom: 8px; border-bottom: 2px solid #333;">Trust Signal Checklist</h2>
+          <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+            ${trustSignals.map(s => `
+              <tr>
+                <td style="padding: 8px; border-bottom: 1px solid #eee; width: 24px;">${s.found ? '✓' : '○'}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; color: ${s.found ? '#166534' : '#666'};">${s.label}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eee; color: ${s.found ? '#166534' : '#888'}; font-style: italic;">${s.found ? 'Found on site' : s.suggestion}</td>
+              </tr>
+            `).join('')}
+          </table>
+        </div>
+      `
+
+      // Build FULL competitor section with table AND detailed cards
+      const competitorHtml = hasCompetitorData && data?.competitorComparison?.detailedScores?.length
+        ? `
+          <div style="page-break-before: always;">
+            <h2 style="font-size: 16px; font-weight: bold; margin: 0 0 12px 0; padding-bottom: 8px; border-bottom: 2px solid #333;">Competitive Analysis</h2>
+
+            <!-- Summary Table -->
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 24px;">
+              <thead>
+                <tr style="background: #f5f5f5;">
+                  <th style="text-align: left; padding: 8px; border: 1px solid #ddd;">Site</th>
+                  <th style="text-align: center; padding: 8px; border: 1px solid #ddd;">Score</th>
+                  <th style="text-align: left; padding: 8px; border: 1px solid #ddd;">Comparison</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="background: #f0f7ff;">
+                  <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">${escapeHtml(hostname)} (You)</td>
+                  <td style="padding: 8px; border: 1px solid #ddd; text-align: center; font-weight: bold;">${preview.commodityScore}</td>
+                  <td style="padding: 8px; border: 1px solid #ddd;">—</td>
+                </tr>
+                ${data.competitorComparison.detailedScores.map((c: { url: string; score: number }) => `
+                  <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd;">${escapeHtml(c.url.replace(/^https?:\/\//, '').split('/')[0])}</td>
+                    <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${c.score}</td>
+                    <td style="padding: 8px; border: 1px solid #ddd; color: ${c.score > preview.commodityScore ? '#c00' : '#166534'};">
+                      ${c.score > preview.commodityScore ? `Behind by ${c.score - preview.commodityScore}` : c.score < preview.commodityScore ? `Ahead by ${preview.commodityScore - c.score}` : 'Tied'}
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+
+            <!-- Detailed Competitor Cards -->
+            ${data.competitorComparison.detailedScores.map((c: { url: string; score: number; strengths?: string[]; weaknesses?: string[]; categoryScores?: Record<string, number> }) => `
+              <div style="margin-bottom: 20px; padding: 16px; border: 1px solid #ddd; border-radius: 4px; page-break-inside: avoid;">
+                <h3 style="font-size: 13px; margin: 0 0 8px 0; color: #111;">${escapeHtml(c.url.replace(/^https?:\/\//, '').split('/')[0])}</h3>
+                <p style="font-size: 12px; color: #666; margin: 0 0 12px 0;">Score: <strong>${c.score}/100</strong></p>
+
+                ${c.categoryScores ? `
+                  <div style="margin-bottom: 12px;">
+                    <p style="font-size: 11px; font-weight: bold; color: #333; margin: 0 0 4px 0;">Category Breakdown:</p>
+                    <table style="width: 100%; font-size: 10px; border-collapse: collapse;">
+                      ${Object.entries(c.categoryScores).map(([key, val]) => `
+                        <tr>
+                          <td style="padding: 2px 0; color: #555;">${catNames[key] || key}</td>
+                          <td style="padding: 2px 0; text-align: right; font-weight: bold; color: ${getScoreColor(val as number)};">${val}/10</td>
+                        </tr>
+                      `).join('')}
+                    </table>
+                  </div>
+                ` : ''}
+
+                <div style="display: flex; gap: 16px;">
+                  ${(c.strengths?.length || 0) > 0 ? `
+                    <div style="flex: 1;">
+                      <p style="font-size: 11px; font-weight: bold; color: #166534; margin: 0 0 4px 0;">✓ Where they're strong</p>
+                      <ul style="font-size: 10px; color: #333; margin: 0; padding-left: 16px;">
+                        ${(c.strengths || []).map((s: string) => `<li style="margin-bottom: 2px;">${escapeHtml(s)}</li>`).join('')}
+                      </ul>
+                    </div>
+                  ` : ''}
+                  ${(c.weaknesses?.length || 0) > 0 ? `
+                    <div style="flex: 1;">
+                      <p style="font-size: 11px; font-weight: bold; color: #c00; margin: 0 0 4px 0;">✗ Where they're weak</p>
+                      <ul style="font-size: 10px; color: #333; margin: 0; padding-left: 16px;">
+                        ${(c.weaknesses || []).map((w: string) => `<li style="margin-bottom: 2px;">${escapeHtml(w)}</li>`).join('')}
+                      </ul>
+                    </div>
+                  ` : ''}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `
+        : ''
+
+      // Build swipe file summary
+      const allFindings = preview.topIssues.flatMap((issue: { findings?: { phrase: string; rewrite: string }[] }) => issue.findings || [])
+      const swipeFileSummaryHtml = allFindings.length > 0
+        ? `
+          <div style="page-break-before: always;">
+            <h2 style="font-size: 16px; font-weight: bold; margin: 0 0 8px 0; padding-bottom: 8px; border-bottom: 2px solid #333;">Swipe File Summary</h2>
+            <p style="font-size: 12px; color: #555; margin: 0 0 16px 0;">${allFindings.length} rewrites ready to use. Each shows original copy and suggested replacement.</p>
+            <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
+              <thead>
+                <tr style="background: #f5f5f5;">
+                  <th style="text-align: left; padding: 6px; border: 1px solid #ddd; width: 45%;">Before</th>
+                  <th style="text-align: left; padding: 6px; border: 1px solid #ddd; width: 45%;">After</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${allFindings.slice(0, 20).map((f: { phrase: string; rewrite: string }) => `
+                  <tr>
+                    <td style="padding: 6px; border: 1px solid #ddd; color: #666; vertical-align: top; word-wrap: break-word;">${escapeHtml(f.phrase.substring(0, 100))}${f.phrase.length > 100 ? '...' : ''}</td>
+                    <td style="padding: 6px; border: 1px solid #ddd; color: #111; vertical-align: top; word-wrap: break-word;">${escapeHtml(f.rewrite.substring(0, 100))}${f.rewrite.length > 100 ? '...' : ''}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+            ${allFindings.length > 20 ? `<p style="font-size: 10px; color: #888; margin: 8px 0 0 0; font-style: italic;">Showing first 20 of ${allFindings.length} rewrites. See full report online for complete list.</p>` : ''}
+          </div>
+        `
+        : ''
+
+      // Build pages analyzed list
+      const pagesAnalyzedHtml = preview.siteSnapshot?.pagesFound?.length
+        ? `
+          <div style="page-break-before: always;">
+            <h2 style="font-size: 16px; font-weight: bold; margin: 0 0 12px 0; padding-bottom: 8px; border-bottom: 2px solid #333;">Pages Analyzed</h2>
+            <p style="font-size: 12px; color: #555; margin: 0 0 12px 0;">We scanned ${preview.pagesScanned} pages from your website:</p>
+            <div style="columns: 2; column-gap: 24px; font-size: 11px;">
+              ${preview.siteSnapshot.pagesFound.map((p: string) => `
+                <p style="margin: 0 0 4px 0; padding: 4px 0; border-bottom: 1px solid #eee; break-inside: avoid; color: #333;">${escapeHtml(p)}</p>
+              `).join('')}
+            </div>
+          </div>
+        `
+        : ''
+
+      // Simple Word-style PDF document - COMPLETE REPORT
+      const pdfHtml = document.createElement('div')
+      pdfHtml.style.fontFamily = 'Georgia, Times, serif'
+      pdfHtml.style.maxWidth = '700px'
+      pdfHtml.style.margin = '0 auto'
+      pdfHtml.style.padding = '40px'
+      pdfHtml.style.lineHeight = '1.6'
+      pdfHtml.style.color = '#111'
+      pdfHtml.innerHTML = `
+        <!-- HEADER -->
+        <div style="text-align: center; padding-bottom: 24px; border-bottom: 2px solid #333; margin-bottom: 24px;">
+          <h1 style="font-size: 24px; font-weight: bold; margin: 0 0 8px 0;">Website Messaging Audit</h1>
+          <p style="font-size: 16px; color: #555; margin: 0 0 16px 0;">${escapeHtml(displayName)}</p>
+          <p style="font-size: 36px; font-weight: bold; margin: 0; color: #2563eb;">${preview.commodityScore ?? 0}<span style="font-size: 18px; color: #666;">/100</span></p>
+          <p style="font-size: 12px; color: #888; margin: 8px 0 0 0;">Messaging Differentiation Score</p>
+        </div>
+
+        <!-- SUMMARY -->
+        <div style="margin-bottom: 24px;">
+          <h2 style="font-size: 16px; font-weight: bold; margin: 0 0 12px 0; padding-bottom: 8px; border-bottom: 2px solid #333;">Summary</h2>
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+            <tr>
+              <td style="padding: 6px 0;">Pages scanned:</td>
+              <td style="padding: 6px 0; text-align: right; font-weight: bold;">${preview.pagesScanned}</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0;">Issues found:</td>
+              <td style="padding: 6px 0; text-align: right; font-weight: bold; color: #c00;">${preview.topIssues.length}</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0;">Rewrites ready:</td>
+              <td style="padding: 6px 0; text-align: right; font-weight: bold; color: #166534;">${totalRewrites}</td>
+            </tr>
+          </table>
+        </div>
+
+        <!-- CATEGORY SCORES -->
+        <div style="margin-bottom: 24px;">
+          <h2 style="font-size: 16px; font-weight: bold; margin: 0 0 12px 0; padding-bottom: 8px; border-bottom: 2px solid #333;">Score Breakdown</h2>
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+            ${categoryScoresHtml}
+          </table>
+        </div>
+
+        ${preview.voiceSummary ? `
+        <!-- VOICE SUMMARY -->
+        <div style="margin-bottom: 24px;">
+          <h2 style="font-size: 16px; font-weight: bold; margin: 0 0 12px 0; padding-bottom: 8px; border-bottom: 2px solid #333;">Brand Voice Analysis</h2>
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+            <tr>
+              <td style="padding: 8px 0; width: 140px; vertical-align: top; color: #666;">Current Tone:</td>
+              <td style="padding: 8px 0;">${escapeHtml(preview.voiceSummary.currentTone || '')}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; width: 140px; vertical-align: top; color: #666;">Authentic Voice:</td>
+              <td style="padding: 8px 0;">${escapeHtml(preview.voiceSummary.authenticVoice || '')}</td>
+            </tr>
+          </table>
+        </div>
+        ` : ''}
+
+        <!-- PRIORITY ISSUES (Top 6) -->
+        <div style="page-break-before: always;">
+          <h2 style="font-size: 16px; font-weight: bold; margin: 0 0 16px 0; padding-bottom: 8px; border-bottom: 2px solid #333;">Priority Issues & Rewrites</h2>
+          ${issuesHtml}
+        </div>
+
+        <!-- COPY YOU CAN USE (Issues 6+) -->
+        ${copySectionHtml}
+
+        <!-- TRUST CHECKLIST -->
+        <div style="page-break-before: always;">
+          ${trustChecklistHtml}
+        </div>
+
+        <!-- COMPETITORS -->
+        ${competitorHtml}
+
+        <!-- SWIPE FILE SUMMARY -->
+        ${swipeFileSummaryHtml}
+
+        <!-- PAGES ANALYZED -->
+        ${pagesAnalyzedHtml}
+
+        <!-- FOOTER -->
+        <div style="margin-top: 40px; padding-top: 16px; border-top: 1px solid #ddd; text-align: center;">
+          <p style="font-size: 11px; color: #888; margin: 0;">Website Messaging Audit by Lee Fuhr | leefuhr.com</p>
+          <p style="font-size: 10px; color: #aaa; margin: 4px 0 0 0;">Generated ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+        </div>
+      `
+
+      const opt = {
+        margin: [20, 20, 20, 20] as [number, number, number, number],
+        filename: `website-audit-${hostname}.pdf`,
+        image: { type: 'jpeg' as const, quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false },
+        jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const },
+        pagebreak: { mode: ['css'] as ('css')[], before: '[style*="page-break-before"]' }
+      }
+
+      await html2pdf().set(opt).from(pdfHtml).save()
+    } catch (err) {
+      console.error('PDF generation failed:', err)
+      window.print()
+    }
+  }
+
+  const handleDownloadBriefPDF = async () => {
+    try {
+      const html2pdf = (await import('html2pdf.js')).default
+
+      // Proper company name for brief
+      const briefDisplayName = hostname.includes('.') ? hostname : companyName
+
+      // Get 3 sample rewrites from different issues
+      const sampleRewrites = preview.topIssues
+        .flatMap((issue: { findings?: { phrase: string; rewrite: string }[] }) => issue.findings?.slice(0, 1) || [])
+        .slice(0, 3)
+
+      // Competitive context if available
+      const competitorContext = hasCompetitorData && data?.competitorComparison?.detailedScores?.length
+        ? `Your score: ${data.competitorComparison.yourScore}/100 | Competitors avg: ${data.competitorComparison.averageScore}/100`
+        : ''
+
+      // Create a DENSE one-page brief - increased base font to 12px
+      const briefHtml = document.createElement('div')
+      briefHtml.style.fontFamily = 'system-ui, -apple-system, sans-serif'
+      briefHtml.style.padding = '24px'
+      briefHtml.style.maxWidth = '800px'
+      briefHtml.style.margin = '0 auto'
+      briefHtml.style.fontSize = '12px'
+      briefHtml.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: 16px;">
+          <div>
+            <h1 style="font-size: 20px; font-weight: bold; color: #1e293b; margin: 0;">Copywriter Brief</h1>
+            <p style="font-size: 14px; color: #64748b; margin: 4px 0 0 0;">${briefDisplayName}</p>
+          </div>
+          <div style="text-align: right;">
+            <p style="font-size: 28px; font-weight: bold; color: #2563eb; margin: 0;">${preview.commodityScore}<span style="font-size: 14px; color: #64748b;">/100</span></p>
+            <p style="font-size: 11px; color: #64748b; margin: 0;">Differentiation Score</p>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 16px;">
+          <div style="background: #f8fafc; padding: 10px; border-radius: 4px; text-align: center;">
+            <p style="font-size: 18px; font-weight: bold; color: #1e293b; margin: 0;">${preview.pagesScanned}</p>
+            <p style="font-size: 10px; color: #64748b; margin: 0;">Pages</p>
+          </div>
+          <div style="background: #f8fafc; padding: 10px; border-radius: 4px; text-align: center;">
+            <p style="font-size: 18px; font-weight: bold; color: #1e293b; margin: 0;">${preview.topIssues.length}</p>
+            <p style="font-size: 10px; color: #64748b; margin: 0;">Issues</p>
+          </div>
+          <div style="background: #f8fafc; padding: 10px; border-radius: 4px; text-align: center;">
+            <p style="font-size: 18px; font-weight: bold; color: #1e293b; margin: 0;">${preview.topIssues.reduce((acc: number, issue: { findings?: unknown[] }) => acc + (issue.findings?.length || 0), 0)}</p>
+            <p style="font-size: 10px; color: #64748b; margin: 0;">Rewrites</p>
+          </div>
+          <div style="background: #fef2f2; padding: 10px; border-radius: 4px; text-align: center;">
+            <p style="font-size: 18px; font-weight: bold; color: #dc2626; margin: 0;">${preview.topIssues.filter((i: { severity: string }) => i.severity === 'critical').length}</p>
+            <p style="font-size: 10px; color: #dc2626; margin: 0;">Critical</p>
+          </div>
+        </div>
+
+        ${preview.voiceSummary ? `
+        <div style="background: #f0f9ff; padding: 12px; border-radius: 4px; margin-bottom: 16px; border-left: 3px solid #2563eb;">
+          <h2 style="font-size: 12px; font-weight: bold; color: #1e293b; margin: 0 0 6px 0;">Voice Snapshot</h2>
+          <p style="margin: 0 0 4px 0; font-size: 11px;"><strong>Current:</strong> ${escapeHtml(preview.voiceSummary.currentTone || '')}</p>
+          <p style="margin: 0; font-size: 11px;"><strong>Authentic:</strong> ${escapeHtml(preview.voiceSummary.authenticVoice || '')}</p>
+        </div>
+        ` : ''}
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div>
+            <h2 style="font-size: 13px; font-weight: bold; color: #1e293b; margin: 0 0 8px 0; padding-bottom: 4px; border-bottom: 1px solid #e2e8f0;">Top 5 Priorities</h2>
+            ${preview.topIssues.slice(0, 5).map((issue: { title: string; severity: string }, i: number) => `
+              <p style="margin: 0 0 5px 0; font-size: 11px;"><strong style="color: #2563eb;">${i + 1}.</strong> ${escapeHtml(issue.title)} <span style="color: ${issue.severity === 'critical' ? '#dc2626' : '#64748b'};">(${escapeHtml(issue.severity)})</span></p>
+            `).join('')}
+
+            <h2 style="font-size: 13px; font-weight: bold; color: #1e293b; margin: 16px 0 8px 0; padding-bottom: 4px; border-bottom: 1px solid #e2e8f0;">Messaging Rules</h2>
+            <p style="margin: 0 0 4px 0; font-size: 11px;">1. Lead with proof points (numbers, years)</p>
+            <p style="margin: 0 0 4px 0; font-size: 11px;">2. Replace generic claims with outcomes</p>
+            <p style="margin: 0 0 4px 0; font-size: 11px;">3. Name the ideal customer explicitly</p>
+            <p style="margin: 0 0 4px 0; font-size: 11px;">4. Use active voice and direct CTAs</p>
+
+            ${competitorContext ? `
+            <div style="margin-top: 12px; padding: 8px; background: #fef3c7; border-radius: 4px;">
+              <p style="font-size: 10px; font-weight: bold; color: #92400e; margin: 0;">Competitive Context</p>
+              <p style="font-size: 11px; color: #78350f; margin: 4px 0 0 0;">${competitorContext}</p>
+            </div>
+            ` : ''}
+          </div>
+
+          <div>
+            <h2 style="font-size: 13px; font-weight: bold; color: #1e293b; margin: 0 0 8px 0; padding-bottom: 4px; border-bottom: 1px solid #e2e8f0;">Sample Rewrites</h2>
+            ${sampleRewrites.map((f: { phrase: string; rewrite: string }) => `
+              <div style="margin-bottom: 10px; padding: 8px; background: #f8fafc; border-radius: 4px; border-left: 2px solid #2563eb;">
+                <p style="font-size: 10px; color: #ef4444; margin: 0; font-weight: 600;">BEFORE</p>
+                <p style="font-size: 11px; color: #64748b; margin: 2px 0 6px 0; text-decoration: line-through;">${escapeHtml(f.phrase.slice(0, 70))}${f.phrase.length > 70 ? '...' : ''}</p>
+                <p style="font-size: 10px; color: #22c55e; margin: 0; font-weight: 600;">AFTER</p>
+                <p style="font-size: 11px; color: #1e293b; margin: 2px 0 0 0; font-weight: 500;">${escapeHtml(f.rewrite.slice(0, 70))}${f.rewrite.length > 70 ? '...' : ''}</p>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid #e2e8f0; color: #94a3b8; font-size: 10px; text-align: center;">
+          Website Messaging Audit | leefuhr.com | ${new Date().toLocaleDateString()}
+        </div>
+      `
+
+      const opt = {
+        margin: [10, 10, 10, 10] as [number, number, number, number],
+        filename: `copywriter-brief-${hostname}.pdf`,
+        image: { type: 'jpeg' as const, quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false },
+        jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const }
+      }
+
+      await html2pdf().set(opt).from(briefHtml).save()
+    } catch (err) {
+      console.error('Brief PDF generation failed:', err)
+    }
+  }
+
+  const handleDownloadSwipePDF = async () => {
+    try {
+      const html2pdf = (await import('html2pdf.js')).default
+
+      const allFindings = preview.topIssues.flatMap((issue: { findings?: { phrase: string; rewrite: string; problem?: string; location?: string }[] }) => issue.findings || [])
+
+      const swipeHtml = document.createElement('div')
+      swipeHtml.style.fontFamily = 'system-ui, -apple-system, sans-serif'
+      swipeHtml.style.padding = '24px'
+      swipeHtml.style.maxWidth = '800px'
+      swipeHtml.style.margin = '0 auto'
+      swipeHtml.style.fontSize = '11px'
+      swipeHtml.innerHTML = `
+        <div style="border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: 16px;">
+          <h1 style="font-size: 18px; font-weight: bold; color: #1e293b; margin: 0;">Messaging Swipe File</h1>
+          <p style="font-size: 13px; color: #64748b; margin: 4px 0 0 0;">${hostname} • ${allFindings.length} rewrites</p>
+        </div>
+
+        ${allFindings.map((f: { phrase: string; rewrite: string; problem?: string; location?: string }, i: number) => `
+          <div style="margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid #e2e8f0;">
+            <p style="font-size: 9px; color: #94a3b8; margin: 0 0 4px 0;">${i + 1}/${allFindings.length}</p>
+            <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+              <tr>
+                <td style="width: 60px; padding: 4px 8px; background: #fef2f2; color: #dc2626; font-weight: bold; vertical-align: top;">BEFORE</td>
+                <td style="padding: 4px 8px; background: #fef2f2; color: #374151;">${escapeHtml(f.phrase)}</td>
+              </tr>
+              <tr>
+                <td style="width: 60px; padding: 4px 8px; background: #f0fdf4; color: #166534; font-weight: bold; vertical-align: top;">AFTER</td>
+                <td style="padding: 4px 8px; background: #f0fdf4; color: #1e293b; font-weight: 500;">${escapeHtml(f.rewrite)}</td>
+              </tr>
+              ${f.problem ? `<tr><td colspan="2" style="padding: 4px 8px; color: #64748b; font-style: italic; font-size: 10px;"><strong>Why:</strong> ${escapeHtml(f.problem)}</td></tr>` : ''}
+              ${f.location ? `<tr><td colspan="2" style="padding: 4px 8px; color: #94a3b8; font-size: 9px;">Found: ${escapeHtml(f.location)}</td></tr>` : ''}
+            </table>
+          </div>
+        `).join('')}
+
+        <div style="margin-top: 24px; text-align: center; color: #94a3b8; font-size: 10px;">
+          Website Messaging Audit by Lee Fuhr | leefuhr.com
+        </div>
+      `
+
+      const opt = {
+        margin: [15, 15, 15, 15] as [number, number, number, number],
+        filename: `swipe-file-${hostname}.pdf`,
+        image: { type: 'jpeg' as const, quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false },
+        jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const }
+      }
+
+      await html2pdf().set(opt).from(swipeHtml).save()
+    } catch (err) {
+      console.error('Swipe PDF generation failed:', err)
+    }
+  }
+
   if (loading) {
     return (
       <main className="min-h-screen bg-[var(--background)] flex items-center justify-center">
@@ -388,7 +1013,11 @@ export default function PreviewPage() {
     try { return new URL(data.url).hostname.replace('www.', '') }
     catch { return data.url }
   })()
-  const companyName = preview.siteSnapshot.title || hostname.split('.')[0]
+  // Use page title if available and meaningful, otherwise format the hostname nicely
+  const rawTitle = preview.siteSnapshot.title || ''
+  const companyName = rawTitle && rawTitle.length > 2 && !rawTitle.toLowerCase().includes('home')
+    ? rawTitle.split('|')[0].split('-')[0].split('–')[0].trim() // Clean common title separators
+    : formatCompanyName(hostname)
   const scoreColorClass = getScoreColorClass(preview.commodityScore)
   const scoreBgClass = getScoreBgClass(preview.commodityScore)
   const scoreBorderClass = getScoreBorderClass(preview.commodityScore)
@@ -423,24 +1052,7 @@ export default function PreviewPage() {
           <div className="relative group">
             {isTestUnlocked ? (
               <button
-                onClick={async () => {
-                  try {
-                    const response = await fetch(`/api/generate-pdf?id=${params.id}`)
-                    if (response.ok) {
-                      const blob = await response.blob()
-                      const url = window.URL.createObjectURL(blob)
-                      const a = document.createElement('a')
-                      a.href = url
-                      a.download = `audit-${hostname}.pdf`
-                      document.body.appendChild(a)
-                      a.click()
-                      window.URL.revokeObjectURL(url)
-                      document.body.removeChild(a)
-                    }
-                  } catch (err) {
-                    console.error('PDF download failed:', err)
-                  }
-                }}
+                onClick={handleDownloadPDF}
                 className="w-full py-3 px-4 text-sm bg-white text-[var(--accent)] font-semibold transition-all flex items-center justify-center gap-2 opacity-100 cursor-pointer hover:bg-white/90"
               >
                 📄 Download PDF
@@ -465,8 +1077,86 @@ export default function PreviewPage() {
         </div>
       </nav>
 
+      {/* Mobile Navigation Header - visible only on mobile */}
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-[var(--accent)] text-white px-4 py-3 flex items-center justify-between print:hidden">
+        <div>
+          <p className="text-xs opacity-60">Audit for</p>
+          <p className="font-semibold capitalize">{companyName}</p>
+        </div>
+        <button
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          className="p-2 hover:bg-white/10 rounded transition-colors"
+          aria-label="Toggle navigation menu"
+        >
+          {mobileMenuOpen ? (
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+            </svg>
+          )}
+        </button>
+      </div>
+
+      {/* Mobile Menu Overlay */}
+      {mobileMenuOpen && (
+        <div className="lg:hidden fixed inset-0 z-40 print:hidden">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          {/* Menu panel */}
+          <nav className="absolute top-[52px] left-0 right-0 bg-[var(--accent)] text-white max-h-[calc(100vh-52px)] overflow-y-auto">
+            <ul className="py-2">
+              {views.map((view) => (
+                <li key={view.id}>
+                  <button
+                    onClick={() => {
+                      handleViewChange(view.id)
+                      setMobileMenuOpen(false)
+                    }}
+                    className={`w-full text-left py-4 px-6 text-base transition-all flex items-center gap-3 ${
+                      currentView === view.id ? 'bg-white/20 font-semibold' : 'hover:bg-white/10'
+                    }`}
+                  >
+                    {viewIcons[view.id]}
+                    {view.label}
+                    {currentView === view.id && (
+                      <span className="ml-auto text-xs opacity-70">Current</span>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="border-t border-white/20 p-4 space-y-3">
+              {isTestUnlocked && (
+                <button
+                  onClick={() => {
+                    handleDownloadPDF()
+                    setMobileMenuOpen(false)
+                  }}
+                  className="w-full py-3 px-4 text-sm bg-white text-[var(--accent)] font-semibold rounded transition-all"
+                >
+                  📄 Download PDF
+                </button>
+              )}
+              <Link
+                href="/"
+                className="block w-full py-3 px-4 text-sm text-white/70 hover:text-white transition-all text-center"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Analyze another site →
+              </Link>
+            </div>
+          </nav>
+        </div>
+      )}
+
       {/* Main content */}
-      <div className="lg:ml-64 print:!ml-0">
+      <div className="lg:ml-64 print:!ml-0 pt-[52px] lg:pt-0">
         {/* Header */}
         <header className="border-b-4 border-[var(--accent)] py-8 md:py-12">
           <div className="container">
@@ -491,6 +1181,30 @@ export default function PreviewPage() {
                 </>
               )}
             </div>
+
+            {/* SPA Warning */}
+            {preview.siteSnapshot.spaWarning?.isSPA && (
+              <div className="mt-4 p-4 bg-yellow-50 border-l-4 border-yellow-400 rounded">
+                <div className="flex items-start gap-3">
+                  <svg className="w-5 h-5 text-yellow-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                  <div>
+                    <p className="text-sm font-semibold text-yellow-800">JavaScript-rendered site detected</p>
+                    <p className="text-sm text-yellow-700 mt-1">{preview.siteSnapshot.spaWarning.message}</p>
+                    <details className="mt-2">
+                      <summary className="text-xs text-yellow-600 cursor-pointer hover:text-yellow-800">Technical details</summary>
+                      <ul className="text-xs text-yellow-600 mt-1 ml-4 list-disc">
+                        {preview.siteSnapshot.spaWarning.indicators.map((ind, i) => (
+                          <li key={i}>{ind}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Share buttons */}
             <div className="flex gap-3 mt-4">
               <button
@@ -523,8 +1237,11 @@ export default function PreviewPage() {
               <button
                 onClick={async () => {
                   const url = window.location.href
-                  await navigator.clipboard.writeText(url)
-                  alert('Link copied!')
+                  const result = await safeClipboardWrite(url)
+                  if (result.success) {
+                    const btn = document.getElementById('copy-link-btn')
+                    if (btn) { btn.textContent = '✓ Copied!'; setTimeout(() => { btn.textContent = 'Copy Link' }, 1500) }
+                  }
                 }}
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm border border-[var(--border)] hover:bg-[var(--muted)] transition-colors rounded"
               >
@@ -532,7 +1249,7 @@ export default function PreviewPage() {
                   <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" strokeLinecap="round" strokeLinejoin="round"/>
                   <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
-                Copy share link
+                <span id="copy-link-btn">Copy share link</span>
               </button>
             </div>
           </div>
@@ -540,7 +1257,7 @@ export default function PreviewPage() {
 
         {/* OVERVIEW VIEW */}
         {currentView === 'overview' && (
-          <>
+          <ViewNavBar prevView={prevView} nextView={nextView} onNavigate={handleViewChange} hideTopNav={true}>
             {/* How this works */}
             <section className="section bg-[var(--muted)] border-b border-[var(--border)] print:hidden">
               <div className="container">
@@ -646,17 +1363,21 @@ export default function PreviewPage() {
                           {/* Show ALL findings attached to this issue (up to 5) */}
                           {issue.findings && issue.findings.length > 0 ? (
                             <div className="mb-6">
-                              <p className="text-xs font-bold text-[var(--accent)] mb-4 uppercase tracking-wide">
-                                Copy-paste fixes from your site ({issue.findings.length} option{issue.findings.length !== 1 ? 's' : ''}):
-                              </p>
                               <div className="space-y-6">
                                 {issue.findings.map((finding, findingIndex) => (
                                   <div key={findingIndex} className="border-2 border-[var(--border)] rounded-lg overflow-hidden">
                                     <div className="grid md:grid-cols-2 gap-0">
                                       <div className="p-4 bg-red-50 border-r border-[var(--border)]">
-                                        <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT - on your site</p>
+                                        <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT</p>
                                         <p className="text-sm text-[var(--foreground)]">{finding.phrase}</p>
-                                        <p className="text-xs text-[var(--muted-foreground)] mt-2">Found: {finding.location}</p>
+                                        <p className="text-xs text-[var(--muted-foreground)] mt-2">
+                                          Found: {finding.location}
+                                          {finding.pageUrl && (
+                                            <a href={finding.pageUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
+                                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                                            </a>
+                                          )}
+                                        </p>
                                       </div>
                                       <div className="p-4 bg-green-50">
                                         <div className="flex justify-between items-start gap-2 mb-2">
@@ -664,7 +1385,7 @@ export default function PreviewPage() {
                                           <button
                                             onClick={async (e) => {
                                               e.stopPropagation()
-                                              await navigator.clipboard.writeText(finding.rewrite)
+                                              await safeClipboardWrite(finding.rewrite)
                                               const btn = e.currentTarget
                                               btn.textContent = '✓ Copied'
                                               setTimeout(() => { btn.textContent = 'Copy' }, 1500)
@@ -757,16 +1478,16 @@ export default function PreviewPage() {
                       : Math.max(1, Math.min(10, baseScore + variance))
                     const color = score >= 7 ? 'excellent' : score >= 5 ? 'moderate' : 'poor'
                     const label = score >= 7 ? 'Strong' : score >= 5 ? 'Needs work' : 'Critical'
-                    // Map score categories to detail views
-                    const viewMap: Record<string, ViewType> = {
-                      'firstImpression': 'message',
-                      'differentiation': 'audience',
-                      'customerClarity': 'audience',
-                      'storyStructure': 'message',
-                      'trustSignals': 'trust',
-                      'buttonClarity': 'trust',
+
+                    // Sub-factors for each category
+                    const subFactors: Record<string, string[]> = {
+                      firstImpression: ['Hero headline clarity', 'Value prop visibility', 'Visual hierarchy'],
+                      differentiation: ['Unique proof points', 'Specific vs generic claims', 'Competitive positioning'],
+                      customerClarity: ['Target audience specificity', 'Problem/solution fit', 'Use case examples'],
+                      storyStructure: ['Narrative flow', 'Benefit-led messaging', 'Emotional connection'],
+                      trustSignals: ['Social proof quality', 'Credential visibility', 'Risk reducers'],
+                      buttonClarity: ['CTA copy specificity', 'Next step obviousness', 'Value reinforcement'],
                     }
-                    const targetView = viewMap[cat.key] || 'message'
 
                     return (
                       <button
@@ -786,11 +1507,81 @@ export default function PreviewPage() {
                           <div className={`score-bar-fill ${color}`} style={{ width: `${score * 10}%` }}></div>
                         </div>
                         <p className="text-sm text-[var(--muted-foreground)]">{cat.question}</p>
-                        <p className="text-xs text-[var(--accent)] mt-2 font-medium">See breakdown →</p>
+                        {/* What we measure - sub-factors */}
+                        <div className="mt-3 pt-3 border-t border-gray-200">
+                          <p className="text-xs font-semibold text-gray-600 mb-2">What we measure:</p>
+                          <ul className="text-xs text-gray-500 space-y-0.5">
+                            {(subFactors[cat.key] || []).map((factor, idx) => (
+                              <li key={idx}>• {factor}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <p className="text-xs text-[var(--accent)] mt-3 font-medium">See breakdown →</p>
                       </button>
                     )
                   })}
                 </div>
+              </div>
+            </section>
+
+            {/* What we found - Intelligence Summary */}
+            <section className="section bg-gray-50 border-t-2 border-gray-200">
+              <div className="container">
+                <h2 className="text-section mb-6">What we scanned</h2>
+                <div className="grid md:grid-cols-3 gap-6">
+                  <div className="p-6 bg-white border-2 border-gray-300 rounded-lg shadow-sm">
+                    <p className="text-5xl font-bold text-[var(--accent)] mb-2">
+                      {preview?.topIssues?.reduce((total, issue) => total + (issue.findings?.length || 0), 0) || 0}
+                    </p>
+                    <p className="text-sm font-bold mb-2">Copy-paste rewrites</p>
+                    <p className="text-xs text-gray-600">
+                      Specific phrases from YOUR site with suggested replacements
+                    </p>
+                  </div>
+                  <div className="p-6 bg-white border-2 border-gray-300 rounded-lg shadow-sm">
+                    <p className="text-5xl font-bold text-[var(--accent)] mb-2">
+                      {data?.competitorComparison?.detailedScores?.length || 0}
+                    </p>
+                    <p className="text-sm font-bold mb-2">Competitors analyzed</p>
+                    <p className="text-xs text-gray-600">
+                      Full category scoring and insights per competitor
+                    </p>
+                  </div>
+                  <div className="p-6 bg-white border-2 border-gray-300 rounded-lg shadow-sm">
+                    <p className="text-5xl font-bold text-[var(--accent)] mb-2">
+                      {preview?.pagesScanned || 0}
+                    </p>
+                    <p className="text-sm font-bold mb-2">Pages crawled</p>
+                    <p className="text-xs text-gray-600">
+                      Complete content audit across your entire site
+                    </p>
+                  </div>
+                </div>
+
+                {/* Expandable pages list */}
+                {preview?.siteSnapshot?.pagesFound?.length > 0 && (
+                  <details className="mt-6 bg-gray-50 border border-gray-200 rounded-lg">
+                    <summary className="px-4 py-3 cursor-pointer text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
+                      View all {preview.siteSnapshot.pagesFound.length} pages we analyzed
+                    </summary>
+                    <div className="px-4 py-3 border-t border-gray-200 max-h-64 overflow-y-auto">
+                      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-2">
+                        {preview.siteSnapshot.pagesFound.map((page: string, idx: number) => (
+                          <a
+                            key={idx}
+                            href={`https://${hostname}${page}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-gray-600 hover:text-[var(--accent)] hover:underline truncate block py-1"
+                            title={page}
+                          >
+                            {page}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  </details>
+                )}
               </div>
             </section>
 
@@ -836,37 +1627,36 @@ export default function PreviewPage() {
             </section>
             )}
 
-            {/* Next section CTA */}
-            <section className="section border-t-2 border-[var(--border)]">
-              <div className="container">
-                <div className="max-w-xl ml-auto">
-                  <button
-                    onClick={() => handleViewChange('message')}
-                    className="w-full text-left p-6 bg-[var(--accent)] text-white rounded hover:bg-[var(--accent)]/90 transition-colors"
-                  >
-                    <p className="text-xs uppercase tracking-wider text-white/70 mb-2">Continue reading →</p>
-                    <h3 className="text-lg font-semibold text-white mb-1">Your message</h3>
-                    <p className="text-sm text-white/80">Detailed first impression and story structure analysis</p>
-                  </button>
-                </div>
-              </div>
-            </section>
-          </>
+          </ViewNavBar>
         )}
 
         {/* MESSAGE VIEW */}
         {currentView === 'message' && (
-          <>
-            <ViewNavBar prevView={prevView} nextView={nextView} onNavigate={handleViewChange} />
+          <ViewNavBar prevView={prevView} nextView={nextView} onNavigate={handleViewChange}>
             <section className="section">
               <div className="container">
                 <h2 className="text-section mb-6">First impression clarity</h2>
                 <div className="methodology-box">
                   <h3 className="text-subsection mb-2">The 5-second test</h3>
-                  <p className="text-body">
+                  <p className="text-body mb-4">
                     Your prospects open 10 tabs. You have 5 seconds to answer: &quot;Is this for me?&quot; If they can&apos;t
                     immediately see what you do, who you serve, and why you&apos;re different - they close the tab.
                   </p>
+                  {/* Framework reference */}
+                  <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded">
+                    <p className="text-sm font-bold text-gray-800 mb-2">
+                      Framework: StoryBrand clarity filter
+                      <a href="https://en.wikipedia.org/wiki/Donald_Miller_(author)" target="_blank" rel="noopener noreferrer" className="ml-2 text-xs font-normal text-gray-500 hover:text-gray-700 underline">Learn more →</a>
+                    </p>
+                    <p className="text-xs text-gray-600 mb-2">
+                      We measure how quickly visitors can answer these questions:
+                    </p>
+                    <ol className="text-xs text-gray-600 space-y-1 ml-4 list-decimal">
+                      <li>What do you offer?</li>
+                      <li>How will it make my life better?</li>
+                      <li>What do I need to do to buy it?</li>
+                    </ol>
+                  </div>
                 </div>
                 <div className="grid md:grid-cols-2 gap-8 mb-8">
                   <div>
@@ -896,25 +1686,29 @@ export default function PreviewPage() {
                 <div>
                   <h3 className="text-subsection mb-4">What to do</h3>
                   {/* FULLY UNLOCKED - show all first impression findings */}
-                  {preview.topIssues[0]?.findings && preview.topIssues[0].findings.length > 0 ? (
+                  {getFindingsForSection(preview.topIssues, 'positioning').length > 0 ? (
                     <div className="space-y-4">
-                      <p className="text-xs font-bold text-[var(--accent)] uppercase tracking-wide">
-                        Copy-paste fixes for first impression ({preview.topIssues[0].findings.length} option{preview.topIssues[0].findings.length !== 1 ? 's' : ''}):
-                      </p>
-                      {preview.topIssues[0].findings.slice(0, 3).map((finding, idx) => (
+                      {getFindingsForSection(preview.topIssues, 'positioning').slice(0, 5).map((finding, idx) => (
                         <div key={idx} className="border-2 border-[var(--border)] rounded-lg overflow-hidden">
                           <div className="grid md:grid-cols-2 gap-0">
                             <div className="p-4 bg-red-50 border-r border-[var(--border)]">
                               <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT</p>
                               <p className="text-sm text-[var(--foreground)]">{finding.phrase}</p>
-                              <p className="text-xs text-[var(--muted-foreground)] mt-2">Found: {finding.location}</p>
+                              <p className="text-xs text-[var(--muted-foreground)] mt-2">
+                                          Found: {finding.location}
+                                          {finding.pageUrl && (
+                                            <a href={finding.pageUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
+                                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                                            </a>
+                                          )}
+                                        </p>
                             </div>
                             <div className="p-4 bg-green-50">
                               <div className="flex justify-between items-start gap-2 mb-2">
                                 <p className="text-xs font-bold text-green-600">✓ REWRITE</p>
                                 <button
                                   onClick={async () => {
-                                    await navigator.clipboard.writeText(finding.rewrite)
+                                    await safeClipboardWrite(finding.rewrite)
                                   }}
                                   className="text-xs px-2 py-0.5 bg-white border border-green-300 rounded hover:bg-green-100 transition-colors text-green-700 font-medium"
                                 >
@@ -941,7 +1735,14 @@ export default function PreviewPage() {
                         <div className="p-4 bg-red-50 border-r border-[var(--border)]">
                           <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT</p>
                           <p className="text-sm text-[var(--foreground)]">{preview.teaserFinding.phrase}</p>
-                          <p className="text-xs text-[var(--muted-foreground)] mt-2">Found: {preview.teaserFinding.location}</p>
+                          <p className="text-xs text-[var(--muted-foreground)] mt-2">
+                            Found: {preview.teaserFinding.location}
+                            {preview.teaserFinding.pageUrl && (
+                              <a href={preview.teaserFinding.pageUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                              </a>
+                            )}
+                          </p>
                         </div>
                         <div className="p-4 bg-green-50">
                           <p className="text-xs font-bold text-green-600 mb-2">✓ REWRITE</p>
@@ -994,25 +1795,29 @@ export default function PreviewPage() {
                 </div>
                 <div>
                   <h3 className="text-subsection mb-4">What to do</h3>
-                  {isTestUnlocked && preview.topIssues[1]?.findings && preview.topIssues[1].findings.length > 0 ? (
+                  {isTestUnlocked && getFindingsForSection(preview.topIssues, 'valueProps').length > 0 ? (
                     <div className="space-y-4">
-                      <p className="text-xs font-bold text-[var(--accent)] uppercase tracking-wide">
-                        Copy-paste fixes for message structure ({preview.topIssues[1].findings.length} option{preview.topIssues[1].findings.length !== 1 ? 's' : ''}):
-                      </p>
-                      {preview.topIssues[1].findings.slice(0, 3).map((finding, idx) => (
+                      {getFindingsForSection(preview.topIssues, 'valueProps').slice(0, 5).map((finding, idx) => (
                         <div key={idx} className="border-2 border-[var(--border)] rounded-lg overflow-hidden">
                           <div className="grid md:grid-cols-2 gap-0">
                             <div className="p-4 bg-red-50 border-r border-[var(--border)]">
                               <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT</p>
                               <p className="text-sm text-[var(--foreground)]">{finding.phrase}</p>
-                              <p className="text-xs text-[var(--muted-foreground)] mt-2">Found: {finding.location}</p>
+                              <p className="text-xs text-[var(--muted-foreground)] mt-2">
+                                          Found: {finding.location}
+                                          {finding.pageUrl && (
+                                            <a href={finding.pageUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
+                                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                                            </a>
+                                          )}
+                                        </p>
                             </div>
                             <div className="p-4 bg-green-50">
                               <div className="flex justify-between items-start gap-2 mb-2">
                                 <p className="text-xs font-bold text-green-600">✓ REWRITE</p>
                                 <button
                                   onClick={async () => {
-                                    await navigator.clipboard.writeText(finding.rewrite)
+                                    await safeClipboardWrite(finding.rewrite)
                                   }}
                                   className="text-xs px-2 py-0.5 bg-white border border-green-300 rounded hover:bg-green-100 transition-colors text-green-700 font-medium"
                                 >
@@ -1042,23 +1847,37 @@ export default function PreviewPage() {
                 </div>
               </div>
             </section>
-          </>
+          </ViewNavBar>
         )}
 
         {/* AUDIENCE VIEW */}
         {currentView === 'audience' && (
-          <>
-            <ViewNavBar prevView={prevView} nextView={nextView} onNavigate={handleViewChange} />
+          <ViewNavBar prevView={prevView} nextView={nextView} onNavigate={handleViewChange}>
             <section className="section">
               <div className="container">
                 <h2 className="text-section mb-6">Who you&apos;re really for</h2>
                 <div className="methodology-box">
                   <h3 className="text-subsection mb-2">The &quot;more of these&quot; principle</h3>
-                  <p className="text-body">
+                  <p className="text-body mb-4">
                     Think of your best customers - the ones who pay on time, don&apos;t nickel-and-dime you,
                     and refer others. Your website should speak directly to <em>that</em> company. When
                     you write for everyone, you connect with no one.
                   </p>
+                  {/* Framework reference */}
+                  <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded">
+                    <p className="text-sm font-bold text-gray-800 mb-2">
+                      Framework: Jobs-to-be-done
+                      <a href="https://en.wikipedia.org/wiki/Outcome-Driven_Innovation" target="_blank" rel="noopener noreferrer" className="ml-2 text-xs font-normal text-gray-500 hover:text-gray-700 underline">Learn more →</a>
+                    </p>
+                    <p className="text-xs text-gray-600 mb-2">
+                      We look for language that addresses:
+                    </p>
+                    <ul className="text-xs text-gray-600 space-y-1 ml-4 list-disc">
+                      <li>The specific situation triggering their search</li>
+                      <li>The outcome they&apos;re trying to achieve</li>
+                      <li>Barriers preventing them from getting there</li>
+                    </ul>
+                  </div>
                 </div>
                 <div className="grid md:grid-cols-2 gap-8 mb-8">
                   <div>
@@ -1083,25 +1902,29 @@ export default function PreviewPage() {
                 </div>
                 <div>
                   <h3 className="text-subsection mb-4">What to do</h3>
-                  {isTestUnlocked && preview.topIssues[2]?.findings && preview.topIssues[2].findings.length > 0 ? (
+                  {isTestUnlocked && getFindingsForSection(preview.topIssues, 'audience').length > 0 ? (
                     <div className="space-y-4">
-                      <p className="text-xs font-bold text-[var(--accent)] uppercase tracking-wide">
-                        Copy-paste fixes for customer clarity ({preview.topIssues[2].findings.length} option{preview.topIssues[2].findings.length !== 1 ? 's' : ''}):
-                      </p>
-                      {preview.topIssues[2].findings.slice(0, 3).map((finding, idx) => (
+                      {getFindingsForSection(preview.topIssues, 'audience').slice(0, 5).map((finding, idx) => (
                         <div key={idx} className="border-2 border-[var(--border)] rounded-lg overflow-hidden">
                           <div className="grid md:grid-cols-2 gap-0">
                             <div className="p-4 bg-red-50 border-r border-[var(--border)]">
                               <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT</p>
                               <p className="text-sm text-[var(--foreground)]">{finding.phrase}</p>
-                              <p className="text-xs text-[var(--muted-foreground)] mt-2">Found: {finding.location}</p>
+                              <p className="text-xs text-[var(--muted-foreground)] mt-2">
+                                          Found: {finding.location}
+                                          {finding.pageUrl && (
+                                            <a href={finding.pageUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
+                                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                                            </a>
+                                          )}
+                                        </p>
                             </div>
                             <div className="p-4 bg-green-50">
                               <div className="flex justify-between items-start gap-2 mb-2">
                                 <p className="text-xs font-bold text-green-600">✓ REWRITE</p>
                                 <button
                                   onClick={async () => {
-                                    await navigator.clipboard.writeText(finding.rewrite)
+                                    await safeClipboardWrite(finding.rewrite)
                                   }}
                                   className="text-xs px-2 py-0.5 bg-white border border-green-300 rounded hover:bg-green-100 transition-colors text-green-700 font-medium"
                                 >
@@ -1162,25 +1985,29 @@ export default function PreviewPage() {
                 </div>
                 <div>
                   <h3 className="text-subsection mb-4">What to do</h3>
-                  {isTestUnlocked && preview.topIssues[3]?.findings && preview.topIssues[3].findings.length > 0 ? (
+                  {isTestUnlocked && getFindingsForSection(preview.topIssues, 'differentiators').length > 0 ? (
                     <div className="space-y-4">
-                      <p className="text-xs font-bold text-[var(--accent)] uppercase tracking-wide">
-                        Copy-paste fixes for differentiation ({preview.topIssues[3].findings.length} option{preview.topIssues[3].findings.length !== 1 ? 's' : ''}):
-                      </p>
-                      {preview.topIssues[3].findings.slice(0, 3).map((finding, idx) => (
+                      {getFindingsForSection(preview.topIssues, 'differentiators').slice(0, 5).map((finding, idx) => (
                         <div key={idx} className="border-2 border-[var(--border)] rounded-lg overflow-hidden">
                           <div className="grid md:grid-cols-2 gap-0">
                             <div className="p-4 bg-red-50 border-r border-[var(--border)]">
                               <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT</p>
                               <p className="text-sm text-[var(--foreground)]">{finding.phrase}</p>
-                              <p className="text-xs text-[var(--muted-foreground)] mt-2">Found: {finding.location}</p>
+                              <p className="text-xs text-[var(--muted-foreground)] mt-2">
+                                          Found: {finding.location}
+                                          {finding.pageUrl && (
+                                            <a href={finding.pageUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
+                                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                                            </a>
+                                          )}
+                                        </p>
                             </div>
                             <div className="p-4 bg-green-50">
                               <div className="flex justify-between items-start gap-2 mb-2">
                                 <p className="text-xs font-bold text-green-600">✓ REWRITE</p>
                                 <button
                                   onClick={async () => {
-                                    await navigator.clipboard.writeText(finding.rewrite)
+                                    await safeClipboardWrite(finding.rewrite)
                                   }}
                                   className="text-xs px-2 py-0.5 bg-white border border-green-300 rounded hover:bg-green-100 transition-colors text-green-700 font-medium"
                                 >
@@ -1210,13 +2037,12 @@ export default function PreviewPage() {
                 </div>
               </div>
             </section>
-          </>
+          </ViewNavBar>
         )}
 
         {/* TRUST VIEW */}
         {currentView === 'trust' && (
-          <>
-            <ViewNavBar prevView={prevView} nextView={nextView} onNavigate={handleViewChange} />
+          <ViewNavBar prevView={prevView} nextView={nextView} onNavigate={handleViewChange}>
             <section className="section">
               <div className="container">
                 <h2 className="text-section mb-6">Your proof points</h2>
@@ -1226,6 +2052,20 @@ export default function PreviewPage() {
                     You have proof. Certifications. Track records. Customer wins. But is it visible where it
                     matters? Companies constantly bury their best proof on About pages nobody reads.
                   </p>
+                  <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded">
+                    <p className="text-sm font-bold text-gray-800 mb-2">
+                      Framework: Trust hierarchy
+                      <a href="https://en.wikipedia.org/wiki/Social_proof" target="_blank" rel="noopener noreferrer" className="ml-2 text-xs font-normal text-gray-500 hover:text-gray-700 underline">Learn more →</a>
+                    </p>
+                    <p className="text-xs text-gray-600 mb-2">
+                      We evaluate credibility signals in order of impact:
+                    </p>
+                    <ol className="text-xs text-gray-600 space-y-1 ml-4 list-decimal">
+                      <li>Third-party proof (certifications, awards, client logos)</li>
+                      <li>Social proof (testimonials, case studies, usage stats)</li>
+                      <li>Transparency (team bios, pricing clarity, guarantees)</li>
+                    </ol>
+                  </div>
                 </div>
                 <div className="grid md:grid-cols-2 gap-8 mb-8">
                   <div>
@@ -1249,25 +2089,29 @@ export default function PreviewPage() {
                 </div>
                 <div>
                   <h3 className="text-subsection mb-4">What to do</h3>
-                  {isTestUnlocked && preview.topIssues[4]?.findings && preview.topIssues[4].findings.length > 0 ? (
+                  {isTestUnlocked && getFindingsForSection(preview.topIssues, 'proofPoints').length > 0 ? (
                     <div className="space-y-4">
-                      <p className="text-xs font-bold text-[var(--accent)] uppercase tracking-wide">
-                        Copy-paste fixes for trust signals ({preview.topIssues[4].findings.length} option{preview.topIssues[4].findings.length !== 1 ? 's' : ''}):
-                      </p>
-                      {preview.topIssues[4].findings.slice(0, 3).map((finding, idx) => (
+                      {getFindingsForSection(preview.topIssues, 'proofPoints').slice(0, 5).map((finding, idx) => (
                         <div key={idx} className="border-2 border-[var(--border)] rounded-lg overflow-hidden">
                           <div className="grid md:grid-cols-2 gap-0">
                             <div className="p-4 bg-red-50 border-r border-[var(--border)]">
                               <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT</p>
                               <p className="text-sm text-[var(--foreground)]">{finding.phrase}</p>
-                              <p className="text-xs text-[var(--muted-foreground)] mt-2">Found: {finding.location}</p>
+                              <p className="text-xs text-[var(--muted-foreground)] mt-2">
+                                          Found: {finding.location}
+                                          {finding.pageUrl && (
+                                            <a href={finding.pageUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
+                                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                                            </a>
+                                          )}
+                                        </p>
                             </div>
                             <div className="p-4 bg-green-50">
                               <div className="flex justify-between items-start gap-2 mb-2">
                                 <p className="text-xs font-bold text-green-600">✓ REWRITE</p>
                                 <button
                                   onClick={async () => {
-                                    await navigator.clipboard.writeText(finding.rewrite)
+                                    await safeClipboardWrite(finding.rewrite)
                                   }}
                                   className="text-xs px-2 py-0.5 bg-white border border-green-300 rounded hover:bg-green-100 transition-colors text-green-700 font-medium"
                                 >
@@ -1306,6 +2150,20 @@ export default function PreviewPage() {
                     &quot;Request a Quote&quot; on your homepage? You&apos;re asking someone who just met you to make a
                     commitment. That&apos;s like proposing on a first date.
                   </p>
+                  <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded">
+                    <p className="text-sm font-bold text-gray-800 mb-2">
+                      Framework: Micro-commitment ladder
+                      <a href="https://en.wikipedia.org/wiki/Purchase_funnel" target="_blank" rel="noopener noreferrer" className="ml-2 text-xs font-normal text-gray-500 hover:text-gray-700 underline">Learn more →</a>
+                    </p>
+                    <p className="text-xs text-gray-600 mb-2">
+                      We score CTAs by commitment level vs visitor trust:
+                    </p>
+                    <ol className="text-xs text-gray-600 space-y-1 ml-4 list-decimal">
+                      <li>Low barrier: "See examples", "Watch demo" (appropriate early)</li>
+                      <li>Medium: "Download guide", "Get pricing" (after some trust)</li>
+                      <li>High: "Request quote", "Schedule call" (homepage = friction)</li>
+                    </ol>
+                  </div>
                 </div>
                 <div className="grid md:grid-cols-2 gap-8 mb-8">
                   <div>
@@ -1328,25 +2186,29 @@ export default function PreviewPage() {
                 </div>
                 <div>
                   <h3 className="text-subsection mb-4">What to do</h3>
-                  {isTestUnlocked && preview.topIssues[5]?.findings && preview.topIssues[5].findings.length > 0 ? (
+                  {isTestUnlocked && getFindingsForSection(preview.topIssues, 'ctas').length > 0 ? (
                     <div className="space-y-4">
-                      <p className="text-xs font-bold text-[var(--accent)] uppercase tracking-wide">
-                        Copy-paste fixes for CTAs ({preview.topIssues[5].findings.length} option{preview.topIssues[5].findings.length !== 1 ? 's' : ''}):
-                      </p>
-                      {preview.topIssues[5].findings.slice(0, 3).map((finding, idx) => (
+                      {getFindingsForSection(preview.topIssues, 'ctas').slice(0, 5).map((finding, idx) => (
                         <div key={idx} className="border-2 border-[var(--border)] rounded-lg overflow-hidden">
                           <div className="grid md:grid-cols-2 gap-0">
                             <div className="p-4 bg-red-50 border-r border-[var(--border)]">
                               <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT</p>
                               <p className="text-sm text-[var(--foreground)]">{finding.phrase}</p>
-                              <p className="text-xs text-[var(--muted-foreground)] mt-2">Found: {finding.location}</p>
+                              <p className="text-xs text-[var(--muted-foreground)] mt-2">
+                                          Found: {finding.location}
+                                          {finding.pageUrl && (
+                                            <a href={finding.pageUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
+                                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                                            </a>
+                                          )}
+                                        </p>
                             </div>
                             <div className="p-4 bg-green-50">
                               <div className="flex justify-between items-start gap-2 mb-2">
                                 <p className="text-xs font-bold text-green-600">✓ REWRITE</p>
                                 <button
                                   onClick={async () => {
-                                    await navigator.clipboard.writeText(finding.rewrite)
+                                    await safeClipboardWrite(finding.rewrite)
                                   }}
                                   className="text-xs px-2 py-0.5 bg-white border border-green-300 rounded hover:bg-green-100 transition-colors text-green-700 font-medium"
                                 >
@@ -1376,20 +2238,39 @@ export default function PreviewPage() {
                 </div>
               </div>
             </section>
-          </>
+          </ViewNavBar>
         )}
 
         {/* COPY VIEW */}
         {currentView === 'copy' && (
-          <>
-            <ViewNavBar prevView={prevView} nextView={nextView} onNavigate={handleViewChange} />
+          <ViewNavBar prevView={prevView} nextView={nextView} onNavigate={handleViewChange}>
             <section className="section">
               <div className="container">
-                <h2 className="text-section mb-6">Copy you can use today</h2>
-                <p className="text-body-lg mb-8 max-w-3xl">
-                  The full audit includes 15-20 before/after rewrites specific to YOUR site. Each one
-                  transforms generic messaging into something specific, provable, and differentiated.
+                <h2 className="text-section mb-2">Copy you can use today</h2>
+                <p className="text-body-lg text-[var(--muted-foreground)] mb-6">
+                  Quick wins beyond the critical issues. These rewrites address secondary messaging gaps you can fix today while planning the bigger changes above.
                 </p>
+                <div className="methodology-box mb-8">
+                  <h3 className="text-subsection mb-2">Why generic copy kills conversions</h3>
+                  <p className="text-body">
+                    Generic copy sounds safe but performs terribly. When every competitor claims
+                    &quot;excellence&quot; and &quot;customer focus,&quot; nobody believes anyone.
+                  </p>
+                  <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded">
+                    <p className="text-sm font-bold text-gray-800 mb-2">
+                      Framework: Specificity ladder
+                      <a href="https://en.wikipedia.org/wiki/Advertising" target="_blank" rel="noopener noreferrer" className="ml-2 text-xs font-normal text-gray-500 hover:text-gray-700 underline">Learn more →</a>
+                    </p>
+                    <p className="text-xs text-gray-600 mb-2">
+                      We transform vague claims into concrete proof:
+                    </p>
+                    <ol className="text-xs text-gray-600 space-y-1 ml-4 list-decimal">
+                      <li>&quot;Quality service&quot; → &quot;98.7% on-time delivery rate&quot;</li>
+                      <li>&quot;Industry experts&quot; → &quot;47 years combined aerospace experience&quot;</li>
+                      <li>&quot;Customer focused&quot; → &quot;Dedicated rep answers in under 2 hours&quot;</li>
+                    </ol>
+                  </div>
+                </div>
                 <div className="grid md:grid-cols-2 gap-8 mb-8">
                   <div>
                     <h3 className="text-subsection mb-4">What&apos;s included</h3>
@@ -1436,23 +2317,27 @@ export default function PreviewPage() {
                   <h3 className="text-subsection mb-4">Get all rewrites</h3>
                   {isTestUnlocked && preview.topIssues.slice(6).flatMap(issue => issue.findings || []).length > 0 ? (
                     <div className="space-y-4">
-                      <p className="text-xs font-bold text-[var(--accent)] uppercase tracking-wide">
-                        Additional copy fixes ({preview.topIssues.slice(6).flatMap(issue => issue.findings || []).length} option{preview.topIssues.slice(6).flatMap(issue => issue.findings || []).length !== 1 ? 's' : ''}):
-                      </p>
                       {preview.topIssues.slice(6).flatMap(issue => issue.findings || []).slice(0, 5).map((finding, idx) => (
                         <div key={idx} className="border-2 border-[var(--border)] rounded-lg overflow-hidden">
                           <div className="grid md:grid-cols-2 gap-0">
                             <div className="p-4 bg-red-50 border-r border-[var(--border)]">
                               <p className="text-xs font-bold text-red-600 mb-2">❌ CURRENT</p>
                               <p className="text-sm text-[var(--foreground)]">{finding.phrase}</p>
-                              <p className="text-xs text-[var(--muted-foreground)] mt-2">Found: {finding.location}</p>
+                              <p className="text-xs text-[var(--muted-foreground)] mt-2">
+                                          Found: {finding.location}
+                                          {finding.pageUrl && (
+                                            <a href={finding.pageUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
+                                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                                            </a>
+                                          )}
+                                        </p>
                             </div>
                             <div className="p-4 bg-green-50">
                               <div className="flex justify-between items-start gap-2 mb-2">
                                 <p className="text-xs font-bold text-green-600">✓ REWRITE</p>
                                 <button
                                   onClick={async () => {
-                                    await navigator.clipboard.writeText(finding.rewrite)
+                                    await safeClipboardWrite(finding.rewrite)
                                   }}
                                   className="text-xs px-2 py-0.5 bg-white border border-green-300 rounded hover:bg-green-100 transition-colors text-green-700 font-medium"
                                 >
@@ -1482,13 +2367,12 @@ export default function PreviewPage() {
                 </div>
               </div>
             </section>
-          </>
+          </ViewNavBar>
         )}
 
         {/* COMPETITORS VIEW */}
         {currentView === 'competitors' && (
-          <>
-            <ViewNavBar prevView={prevView} nextView={nextView} onNavigate={handleViewChange} />
+          <ViewNavBar prevView={prevView} nextView={nextView} onNavigate={handleViewChange}>
             <section className="section">
               <div className="container">
                 <h2 className="text-section mb-6">Competitor comparison</h2>
@@ -1590,12 +2474,13 @@ export default function PreviewPage() {
                           try { return new URL(comp.url).hostname.replace('www.', '') }
                           catch { return comp.url }
                         })()
+                        const compDisplayName = formatCompanyName(compHostname)
                         const isWinning = data.competitorComparison && data.competitorComparison.yourScore > comp.score
                         return (
                           <div key={i} className={`p-5 border-2 rounded ${isWinning ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
                             <div className="flex items-center justify-between mb-3">
                               <div>
-                                <span className="font-semibold text-[var(--foreground)]">{compHostname}</span>
+                                <span className="font-semibold text-[var(--foreground)]">{compDisplayName}</span>
                                 <span className={`ml-3 text-xs px-2 py-1 rounded ${isWinning ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                                   {isWinning ? '✓ You\'re ahead' : '⚠ They\'re ahead'}
                                 </span>
@@ -1613,7 +2498,9 @@ export default function PreviewPage() {
                             <p className="text-sm text-[var(--muted-foreground)]">
                               {isWinning
                                 ? `Your messaging is ${data.competitorComparison && data.competitorComparison.yourScore - comp.score} points more differentiated than theirs.`
-                                : `They're ${comp.score - (data.competitorComparison?.yourScore || 0)} points ahead. The full audit shows exactly what they're doing better.`
+                                : isTestUnlocked
+                                  ? `They're ${comp.score - (data.competitorComparison?.yourScore || 0)} points ahead. See the comparison table below for category-by-category breakdown.`
+                                  : `They're ${comp.score - (data.competitorComparison?.yourScore || 0)} points ahead. The full audit shows exactly what they're doing better.`
                               }
                             </p>
                           </div>
@@ -1691,42 +2578,808 @@ export default function PreviewPage() {
                 </div>
                 )}
 
-                {/* Unlocked competitive analysis */}
+                {/* Unlocked competitive analysis - Comparison Table + Insight Cards */}
                 {data.competitorComparison.detailedScores && data.competitorComparison.detailedScores.length > 0 && isTestUnlocked && (
-                <div className="mb-8">
-                  <h3 className="text-subsection mb-4">What you can steal</h3>
-                  <div className="space-y-4">
-                    <p className="text-body text-[var(--muted-foreground)]">
-                      Competitor scores compared to yours. Lower scores mean less differentiated messaging - opportunities for you to stand out.
-                    </p>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      {data.competitorComparison.detailedScores.map((competitor, idx) => {
-                        // Extract domain from URL for display
-                        const displayName = competitor.url.replace(/^https?:\/\//, '').replace(/\/$/, '').split('/')[0]
-                        const isBeatingYou = competitor.score > (preview?.commodityScore || 50)
-                        return (
-                          <div key={idx} className={`p-4 border-2 rounded ${isBeatingYou ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
-                            <div className="flex items-center justify-between">
-                              <span className="font-medium text-[var(--foreground)] truncate mr-2">{displayName}</span>
-                              <span className={`text-sm font-bold px-2 py-0.5 rounded ${isBeatingYou ? 'bg-amber-200 text-amber-800' : 'bg-green-200 text-green-800'}`}>
-                                {competitor.score}
-                              </span>
-                            </div>
-                            <p className="text-xs text-[var(--muted-foreground)] mt-1">
-                              {isBeatingYou ? 'More differentiated than you - study their messaging' : 'Less differentiated - you have an advantage here'}
-                            </p>
+                <>
+                  {/* BIG COMPARISON TABLE */}
+                  <div className="mb-12">
+                    <h3 className="text-subsection mb-6">How you compare</h3>
+
+                    {/* NUMBER LINE COMPARISON GRAPHIC */}
+                    {(() => {
+                      const yourScore = preview?.commodityScore || 50;
+                      const competitorScores = data.competitorComparison.detailedScores?.map(c => c.score) || [];
+                      const competitorAvg = competitorScores.length > 0
+                        ? Math.round(competitorScores.reduce((a, b) => a + b, 0) / competitorScores.length)
+                        : null;
+
+                      return (
+                        <div className="mb-8 p-6 bg-white border border-gray-200 rounded-lg">
+                          {/* Scale labels */}
+                          <div className="flex justify-between text-xs text-gray-500 mb-2">
+                            <span>0</span>
+                            <span>25</span>
+                            <span>50</span>
+                            <span>75</span>
+                            <span>100</span>
                           </div>
-                        )
-                      })}
+
+                          {/* Gradient bar with markers */}
+                          <div className="relative h-12 rounded-lg overflow-hidden" style={{
+                            background: 'linear-gradient(to right, #ef4444 0%, #ef4444 40%, #eab308 40%, #eab308 70%, #22c55e 70%, #22c55e 100%)'
+                          }}>
+                            {/* Grid lines */}
+                            <div className="absolute inset-0 flex">
+                              {[0, 25, 50, 75].map(pos => (
+                                <div key={pos} className="flex-1 border-r border-white/30" />
+                              ))}
+                              <div className="flex-1" />
+                            </div>
+
+                            {/* Competitor average marker */}
+                            {competitorAvg !== null && (
+                              <div
+                                className="absolute top-0 bottom-0 flex flex-col items-center"
+                                style={{ left: `${competitorAvg}%`, transform: 'translateX(-50%)' }}
+                              >
+                                <div className="h-full w-1 bg-gray-800/70" />
+                              </div>
+                            )}
+
+                            {/* Your score marker */}
+                            <div
+                              className="absolute top-0 bottom-0 flex flex-col items-center"
+                              style={{ left: `${yourScore}%`, transform: 'translateX(-50%)' }}
+                            >
+                              <div className="h-full w-1.5 bg-blue-600 shadow-lg" style={{ boxShadow: '0 0 8px rgba(37, 99, 235, 0.8)' }} />
+                            </div>
+                          </div>
+
+                          {/* Legend below the bar */}
+                          <div className="flex justify-center gap-8 mt-4 text-sm">
+                            <div className="flex items-center gap-2">
+                              <div className="w-4 h-4 bg-blue-600 rounded shadow" style={{ boxShadow: '0 0 4px rgba(37, 99, 235, 0.6)' }} />
+                              <span className="font-semibold">Your site: <span className={
+                                yourScore >= 70 ? 'text-green-600' :
+                                yourScore >= 40 ? 'text-yellow-600' :
+                                'text-red-600'
+                              }>{yourScore}</span></span>
+                            </div>
+                            {competitorAvg !== null && (
+                              <div className="flex items-center gap-2">
+                                <div className="w-4 h-4 bg-gray-700 rounded" />
+                                <span className="text-gray-600">Competitors avg: <span className={
+                                  competitorAvg >= 70 ? 'text-green-600' :
+                                  competitorAvg >= 40 ? 'text-yellow-600' :
+                                  'text-red-600'
+                                }>{competitorAvg}</span></span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Zone labels */}
+                          <div className="flex mt-3 text-xs">
+                            <div className="w-[40%] text-center text-red-600 font-medium">Commodity zone</div>
+                            <div className="w-[30%] text-center text-yellow-600 font-medium">Average</div>
+                            <div className="w-[30%] text-center text-green-600 font-medium">Differentiated</div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-2 border-[var(--border)] rounded-lg">
+                        <thead>
+                          <tr className="bg-gray-100 border-b-2 border-gray-300">
+                            <th className="text-left p-4 font-bold sticky left-0 bg-gray-100 z-10 min-w-[140px]">Site</th>
+                            <th className="text-center p-4 font-bold min-w-[80px]">Overall</th>
+                            <th className="text-center p-4 font-bold text-sm min-w-[70px]">First<br/>Impr.</th>
+                            <th className="text-center p-4 font-bold text-sm min-w-[70px]">Differ-<br/>ent.</th>
+                            <th className="text-center p-4 font-bold text-sm min-w-[70px]">Customer<br/>Clarity</th>
+                            <th className="text-center p-4 font-bold text-sm min-w-[70px]">Story</th>
+                            <th className="text-center p-4 font-bold text-sm min-w-[70px]">Trust</th>
+                            <th className="text-center p-4 font-bold text-sm min-w-[70px]">Buttons</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {/* USER ROW - highlighted */}
+                          <tr className="bg-blue-50 border-b-4 border-blue-600">
+                            <td className="p-4 font-bold sticky left-0 bg-blue-50 z-10">
+                              {hostname}
+                              <span className="text-xs bg-blue-600 text-white px-2 py-1 rounded ml-2">YOU</span>
+                            </td>
+                            <td className="text-center p-4">
+                              <span className={`text-2xl font-bold ${
+                                (preview?.commodityScore || 50) >= 70 ? 'text-green-600' :
+                                (preview?.commodityScore || 50) >= 40 ? 'text-yellow-600' :
+                                'text-red-600'
+                              }`}>
+                                {preview?.commodityScore || 50}
+                              </span>
+                            </td>
+                            {preview?.categoryScores ? (
+                              <>
+                                {[
+                                  preview.categoryScores.firstImpression,
+                                  preview.categoryScores.differentiation,
+                                  preview.categoryScores.customerClarity,
+                                  preview.categoryScores.storyStructure,
+                                  preview.categoryScores.trustSignals,
+                                  preview.categoryScores.buttonClarity
+                                ].map((val, idx) => (
+                                  <td key={idx} className={`text-center p-4 font-bold text-lg ${
+                                    val >= 7 ? 'bg-green-100 text-green-700' :
+                                    val >= 4 ? 'bg-yellow-100 text-yellow-700' :
+                                    'bg-red-100 text-red-700'
+                                  }`}>
+                                    {val}
+                                  </td>
+                                ))}
+                              </>
+                            ) : (
+                              <td colSpan={6} className="text-center text-gray-500 p-4">N/A</td>
+                            )}
+                          </tr>
+
+                          {/* COMPETITOR ROWS */}
+                          {data.competitorComparison.detailedScores.map((comp, i) => {
+                            const compDomain = comp.url.replace(/^https?:\/\//, '').replace(/\/$/, '').split('/')[0]
+                            return (
+                              <tr key={i} className="border-b border-gray-200 hover:bg-gray-50">
+                                <td className="p-4 font-mono text-sm sticky left-0 bg-white hover:bg-gray-50 z-10">
+                                  {compDomain}
+                                </td>
+                                <td className="text-center p-4">
+                                  <span className={`text-xl font-bold ${
+                                    comp.score >= 70 ? 'text-green-600' :
+                                    comp.score >= 40 ? 'text-yellow-600' :
+                                    'text-red-600'
+                                  }`}>
+                                    {comp.score}
+                                  </span>
+                                </td>
+                                {comp.categoryScores ? (
+                                  <>
+                                    {[
+                                      comp.categoryScores.firstImpression,
+                                      comp.categoryScores.differentiation,
+                                      comp.categoryScores.customerClarity,
+                                      comp.categoryScores.storyStructure,
+                                      comp.categoryScores.trustSignals,
+                                      comp.categoryScores.buttonClarity
+                                    ].map((val, idx) => (
+                                      <td key={idx} className={`text-center p-4 font-semibold ${
+                                        val >= 7 ? 'bg-green-100 text-green-700' :
+                                        val >= 4 ? 'bg-yellow-100 text-yellow-700' :
+                                        'bg-red-100 text-red-700'
+                                      }`}>
+                                        {val}
+                                      </td>
+                                    ))}
+                                  </>
+                                ) : (
+                                  <td colSpan={6} className="text-center text-xs text-gray-400 p-4">Basic scoring only</td>
+                                )}
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="flex gap-4 mt-3 text-xs">
+                      <span><span className="inline-block w-3 h-3 bg-green-100 border border-green-600 rounded mr-1"></span> 7-10 = Strong</span>
+                      <span><span className="inline-block w-3 h-3 bg-yellow-100 border border-yellow-600 rounded mr-1"></span> 4-6 = Needs work</span>
+                      <span><span className="inline-block w-3 h-3 bg-red-100 border border-red-600 rounded mr-1"></span> 0-3 = Critical</span>
                     </div>
                   </div>
-                </div>
+
+                  {/* WHAT TO STEAL (and where you win) - Insight Cards */}
+                  <div className="space-y-8">
+                    <h3 className="text-subsection">What to steal (and where you win)</h3>
+                    {data.competitorComparison.detailedScores.map((comp, i) => {
+                      const yourScore = preview?.commodityScore || 50
+                      const gap = comp.score - yourScore
+                      const isAhead = gap > 0
+                      const compDomain = comp.url.replace(/^https?:\/\//, '').replace(/\/$/, '').split('/')[0]
+
+                      return (
+                        <div key={i} className="border-2 border-gray-300 rounded-lg p-6 bg-white shadow-sm">
+                          <div className="flex items-center justify-between mb-6">
+                            <h4 className="text-xl font-bold font-mono flex items-center gap-2">
+                              {compDomain}
+                              <a href={comp.url} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-gray-600 transition-colors" title="Open competitor site">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                                  <path fillRule="evenodd" d="M4.25 5.5a.75.75 0 00-.75.75v8.5c0 .414.336.75.75.75h8.5a.75.75 0 00.75-.75v-4a.75.75 0 011.5 0v4A2.25 2.25 0 0112.75 17h-8.5A2.25 2.25 0 012 14.75v-8.5A2.25 2.25 0 014.25 4h5a.75.75 0 010 1.5h-5z" clipRule="evenodd" />
+                                  <path fillRule="evenodd" d="M6.194 12.753a.75.75 0 001.06.053L16.5 4.44v2.81a.75.75 0 001.5 0v-4.5a.75.75 0 00-.75-.75h-4.5a.75.75 0 000 1.5h2.553l-9.056 8.194a.75.75 0 00-.053 1.06z" clipRule="evenodd" />
+                                </svg>
+                              </a>
+                            </h4>
+                            <div className="text-right">
+                              <div className={`text-3xl font-bold ${
+                                comp.score >= 70 ? 'text-green-600' :
+                                comp.score >= 40 ? 'text-yellow-600' :
+                                'text-red-600'
+                              }`}>
+                                {comp.score}/100
+                              </div>
+                              <div className={`text-sm font-semibold ${isAhead ? 'text-red-600' : 'text-green-600'}`}>
+                                {isAhead ? `They're ahead +${gap}` : `You're ahead +${Math.abs(gap)}`}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="grid md:grid-cols-2 gap-6 mb-6">
+                            <div>
+                              <div className="flex items-center gap-2 mb-3">
+                                <span className="text-2xl">✓</span>
+                                <h5 className="font-bold text-green-700 uppercase tracking-wide text-sm">What they do well</h5>
+                              </div>
+                              {comp.strengths && comp.strengths.length > 0 ? (
+                                <ul className="space-y-2">
+                                  {comp.strengths.map((strength, idx) => (
+                                    <li key={idx} className="text-sm bg-green-50 border-l-4 border-green-600 p-3 rounded">
+                                      {strength}
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p className="text-sm text-gray-500 italic">No standout strengths that apply to you</p>
+                              )}
+                            </div>
+
+                            <div>
+                              <div className="flex items-center gap-2 mb-3">
+                                <span className="text-2xl">✗</span>
+                                <h5 className="font-bold text-red-700 uppercase tracking-wide text-sm">Where they&apos;re weak</h5>
+                              </div>
+                              {comp.weaknesses && comp.weaknesses.length > 0 ? (
+                                <ul className="space-y-2">
+                                  {comp.weaknesses.map((weakness, idx) => (
+                                    <li key={idx} className="text-sm bg-red-50 border-l-4 border-red-600 p-3 rounded">
+                                      {weakness}
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p className="text-sm text-gray-500 italic">No notable weaknesses found</p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* YOUR OPPORTUNITY */}
+                          {(() => {
+                            // Find where they beat you and where you beat them by category
+                            const categoryNames: Record<string, string> = {
+                              firstImpression: 'first impression',
+                              differentiation: 'differentiation',
+                              customerClarity: 'customer clarity',
+                              storyStructure: 'story structure',
+                              trustSignals: 'trust signals',
+                              buttonClarity: 'button clarity'
+                            }
+                            const categoryActions: Record<string, { steal: string; attack: string }> = {
+                              firstImpression: {
+                                steal: 'Study their above-fold headline structure and value proposition placement',
+                                attack: 'Your hero section already communicates value faster - keep refining clarity'
+                              },
+                              differentiation: {
+                                steal: 'Analyze how they position against alternatives and claim unique territory',
+                                attack: 'Your unique positioning is landing - double down on what makes you different'
+                              },
+                              customerClarity: {
+                                steal: 'Note how they describe their ideal customer and speak to specific pain points',
+                                attack: 'You already speak to your customer specifically - keep that focus sharp'
+                              },
+                              storyStructure: {
+                                steal: 'Map their narrative arc - problem → solution → transformation flow',
+                                attack: 'Your story flow is stronger - consider adding more customer transformation moments'
+                              },
+                              trustSignals: {
+                                steal: 'Catalog their proof points: specifics numbers, names, logos, testimonials',
+                                attack: 'You have stronger proof - make sure it\'s visible above the fold'
+                              },
+                              buttonClarity: {
+                                steal: 'Review their CTA language and button placement patterns',
+                                attack: 'Your CTAs are clearer - ensure consistency across all pages'
+                              }
+                            }
+
+                            if (!comp.categoryScores || !preview?.categoryScores) {
+                              return (
+                                <div className={`p-4 rounded border-l-4 ${isAhead ? 'bg-amber-50 border-amber-600' : 'bg-blue-50 border-blue-600'}`}>
+                                  <p className={`font-bold text-xs uppercase tracking-wider mb-1 ${isAhead ? 'text-amber-900' : 'text-blue-900'}`}>YOUR OPPORTUNITY</p>
+                                  <p className={`text-sm ${isAhead ? 'text-amber-800' : 'text-blue-800'}`}>
+                                    {isAhead
+                                      ? `Visit ${compDomain} directly and note what makes their messaging effective.`
+                                      : `You're ahead - keep refining what's already working.`}
+                                  </p>
+                                </div>
+                              )
+                            }
+
+                            // Find their best category vs yours
+                            const categories = Object.keys(comp.categoryScores) as (keyof typeof comp.categoryScores)[]
+                            let theirBest = categories[0]
+                            let yourBest = categories[0]
+                            let biggestGapCategory = categories[0]
+                            let biggestGap = 0
+
+                            categories.forEach(cat => {
+                              const theirVal = comp.categoryScores![cat] || 0
+                              const yourVal = preview?.categoryScores?.[cat] || 0
+                              if (theirVal > (comp.categoryScores![theirBest] || 0)) theirBest = cat
+                              if (yourVal > (preview?.categoryScores?.[yourBest] || 0)) yourBest = cat
+                              if (theirVal - yourVal > biggestGap) {
+                                biggestGap = theirVal - yourVal
+                                biggestGapCategory = cat
+                              }
+                            })
+
+                            const theirBestName = categoryNames[theirBest] || theirBest
+                            const yourBestName = categoryNames[yourBest] || yourBest
+                            const gapCatName = categoryNames[biggestGapCategory] || biggestGapCategory
+                            const actions = categoryActions[biggestGapCategory] || { steal: 'Analyze their approach', attack: 'Keep refining' }
+
+                            return (
+                              <div className={`p-4 rounded border-l-4 ${isAhead ? 'bg-amber-50 border-amber-600' : 'bg-blue-50 border-blue-600'}`}>
+                                <p className={`font-bold text-xs uppercase tracking-wider mb-2 ${isAhead ? 'text-amber-900' : 'text-blue-900'}`}>YOUR OPPORTUNITY</p>
+                                <div className={`text-sm space-y-2 ${isAhead ? 'text-amber-800' : 'text-blue-800'}`}>
+                                  {isAhead ? (
+                                    <>
+                                      <p><strong>Learn from them:</strong> They score highest on {theirBestName} ({comp.categoryScores![theirBest]}/10). {actions.steal}.</p>
+                                      {biggestGap > 2 && <p><strong>Biggest gap:</strong> You're {biggestGap} points behind on {gapCatName}. This is your highest-ROI improvement area.</p>}
+                                      <p><strong>Your edge:</strong> You lead on {yourBestName} ({preview?.categoryScores?.[yourBest]}/10) - don't lose this while catching up elsewhere.</p>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <p><strong>Your advantage:</strong> You lead on {yourBestName} ({preview?.categoryScores?.[yourBest]}/10). {actions.attack}.</p>
+                                      <p><strong>Widen the gap:</strong> They're weakest on {theirBestName.replace(theirBestName, Object.entries(comp.categoryScores!).sort((a, b) => a[1] - b[1])[0][0]).replace(/([A-Z])/g, ' $1').toLowerCase().trim()} - this is where you can pull further ahead.</p>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })()}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
                 )}
                   </>
                 )}
               </div>
             </section>
-          </>
+          </ViewNavBar>
+        )}
+
+        {/* RESOURCES VIEW - Swipe file, copywriter brief, export tools */}
+        {currentView === 'resources' && (
+          <ViewNavBar prevView={prevView} nextView={nextView} onNavigate={handleViewChange}>
+            <section className="bg-white py-12 px-4 sm:px-6 lg:px-8 min-h-[60vh]">
+              <div className="max-w-4xl mx-auto">
+                <h2 className="text-section mb-2">Resources</h2>
+                <p className="text-body-lg text-[var(--muted-foreground)] mb-8">
+                  Everything you need to implement changes or hand off to a copywriter.
+                </p>
+
+                {/* GATED TEASER FOR FREE USERS */}
+                {!isTestUnlocked && (
+                  <>
+                    {/* Swipe file teaser */}
+                    <div className="mb-8">
+                      <h3 className="text-subsection mb-4">Swipe file</h3>
+                      <p className="text-body text-[var(--muted-foreground)] mb-4">
+                        All {preview.topIssues.reduce((acc, issue) => acc + (issue.findings?.length || 0), 0)} rewrites in one place, ready to copy and paste.
+                      </p>
+                      <div className="p-6 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg text-center">
+                        <p className="text-[var(--muted-foreground)]">🔒 Unlock to access your full swipe file</p>
+                      </div>
+                    </div>
+
+                    {/* Copywriter brief teaser */}
+                    <div className="mb-8">
+                      <h3 className="text-subsection mb-4">Copywriter brief</h3>
+                      <p className="text-body text-[var(--muted-foreground)] mb-4">
+                        A one-page summary you can hand to a copywriter or share with your team.
+                      </p>
+                      <div className="p-6 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg text-center">
+                        <p className="text-[var(--muted-foreground)]">🔒 Unlock to download your copywriter brief</p>
+                      </div>
+                    </div>
+
+                    {/* Trust checklist teaser */}
+                    <div className="mb-8">
+                      <h3 className="text-subsection mb-4">Trust signal checklist</h3>
+                      <p className="text-body text-[var(--muted-foreground)] mb-4">
+                        Specific proof points to add to your site, with copy suggestions and placement tips.
+                      </p>
+                      <div className="p-6 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg text-center">
+                        <p className="text-[var(--muted-foreground)]">🔒 Unlock to access your personalized checklist</p>
+                      </div>
+                    </div>
+
+                    {/* Competitor comparison teaser */}
+                    <div className="mb-8">
+                      <h3 className="text-subsection mb-4">Competitor comparison</h3>
+                      <p className="text-body text-[var(--muted-foreground)] mb-4">
+                        Side-by-side analysis of your strongest and weakest areas vs. each competitor.
+                      </p>
+                      <div className="p-6 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg text-center">
+                        <p className="text-[var(--muted-foreground)]">🔒 Unlock to see detailed competitor breakdowns</p>
+                      </div>
+                    </div>
+
+                    {/* Unlock CTA */}
+                    <div className="mt-12 p-8 bg-gradient-to-br from-[var(--accent)] to-[#1e3a5f] rounded-lg text-center">
+                      <h3 className="text-xl font-bold text-white mb-2">Unlock your full resource kit</h3>
+                      <p className="text-sm text-white/80 mb-6">Swipe file, copywriter brief, trust checklist, and competitor analysis - all export-ready.</p>
+                      <button
+                        onClick={handleUnlock}
+                        disabled={isCheckingOut}
+                        className="bg-white text-[var(--accent)] px-8 py-3 text-lg font-bold hover:bg-white/90 transition-all shadow-lg disabled:opacity-50"
+                      >
+                        {isCheckingOut ? 'Starting checkout...' : 'Unlock resources - $400'}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {/* UNLOCKED CONTENT */}
+                {isTestUnlocked && (
+                  <>
+
+                {/* SWIPE FILE - All rewrites in one place */}
+                <div className="mb-12">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-subsection">Swipe file</h3>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleDownloadSwipePDF}
+                        className="text-sm bg-[var(--accent)] text-white px-4 py-2 font-semibold hover:opacity-90 transition-opacity"
+                      >
+                        Download PDF
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const allRewrites = preview.topIssues
+                            .flatMap(issue => issue.findings || [])
+                            .map(f => `BEFORE: ${f.phrase}\nAFTER: ${f.rewrite}\nWHY: ${f.problem}\n`)
+                            .join('\n---\n\n')
+                          const result = await safeClipboardWrite(allRewrites)
+                          const btn = document.getElementById('copy-swipe-btn')
+                          if (btn) { btn.textContent = result.success ? 'Copied!' : 'Failed'; setTimeout(() => btn.textContent = 'Copy all', 2000) }
+                        }}
+                        id="copy-swipe-btn"
+                        className="text-sm bg-gray-200 text-gray-700 px-4 py-2 font-semibold hover:bg-gray-300 transition-opacity"
+                      >
+                        Copy all
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-body text-[var(--muted-foreground)] mb-4">
+                    {preview.topIssues.reduce((acc, issue) => acc + (issue.findings?.length || 0), 0)} rewrites ready to paste. Click any to copy individually, or copy all above.
+                  </p>
+                  <div className="space-y-4 max-h-[500px] overflow-y-auto border-2 border-gray-200 rounded-lg p-4">
+                    {preview.topIssues.flatMap((issue, issueIdx) =>
+                      (issue.findings || []).map((finding, findingIdx) => {
+                        const itemId = `swipe-${issueIdx}-${findingIdx}`
+                        return (
+                          <div
+                            key={itemId}
+                            className="group border-l-4 border-[var(--accent)] bg-gray-50 p-4 rounded-r cursor-pointer hover:bg-green-50 hover:border-green-500 transition-all relative"
+                            onClick={async (e) => {
+                              await safeClipboardWrite(finding.rewrite)
+                              const afterEl = document.getElementById(`${itemId}-after`)
+                              if (afterEl) {
+                                afterEl.classList.add('bg-green-200', 'scale-[1.02]')
+                                afterEl.textContent = '✓ Copied!'
+                                setTimeout(() => {
+                                  afterEl.classList.remove('bg-green-200', 'scale-[1.02]')
+                                  afterEl.textContent = finding.rewrite
+                                }, 500)
+                              }
+                            }}
+                          >
+                            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <span className="text-xs bg-green-600 text-white px-2 py-1 rounded font-semibold">Click to copy</span>
+                            </div>
+                            <p className="text-xs text-red-600 font-medium mb-1">BEFORE</p>
+                            <p className="text-sm text-gray-500 line-through mb-3">{finding.phrase}</p>
+                            <p className="text-xs text-green-600 font-medium mb-1">AFTER</p>
+                            <p
+                              id={`${itemId}-after`}
+                              className="text-sm text-[var(--foreground)] font-semibold mb-2 p-2 -m-2 rounded transition-all group-hover:bg-green-100"
+                            >
+                              {finding.rewrite}
+                            </p>
+                            <p className="text-xs text-[var(--muted-foreground)]">
+                              {finding.location}
+                              {finding.pageUrl && (
+                                <a
+                                  href={finding.pageUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]"
+                                  title="View source page"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                                </a>
+                              )}
+                            </p>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                </div>
+
+                {/* COPYWRITER BRIEF */}
+                <div className="mb-12">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-subsection">Copywriter brief</h3>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleDownloadBriefPDF}
+                        className="text-sm bg-[var(--accent)] text-white px-4 py-2 font-semibold hover:opacity-90 transition-opacity"
+                      >
+                        Download PDF
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const brief = `# Website Messaging Brief for ${companyName}
+
+## Overview
+Messaging Differentiation Score: ${preview.commodityScore}/100
+Pages Analyzed: ${preview.pagesScanned}
+Date: ${new Date().toLocaleDateString()}
+
+## Brand Voice Summary
+${preview.voiceSummary ? `Current tone: ${preview.voiceSummary.currentTone}\nAuthentic voice: ${preview.voiceSummary.authenticVoice}` : 'See detailed findings below for voice patterns.'}
+
+## Priority Fixes (Top 5)
+${preview.topIssues.slice(0, 5).map((issue, i) => `${i + 1}. ${issue.title} (${issue.severity})\n   ${issue.description}`).join('\n\n')}
+
+## Competitive Context
+${hasCompetitorData && data?.competitorComparison?.detailedScores ? `Your score: ${data.competitorComparison.yourScore}/100\nCompetitors analyzed: ${data.competitorComparison.detailedScores.map(c => c.url.replace(/^https?:\/\//, '').split('/')[0]).join(', ')}` : 'See competitor analysis section for positioning context.'}
+
+## Key Messaging Rules
+1. Lead with specific proof points (numbers, years, certifications)
+2. Replace generic claims with specific outcomes
+3. Name the ideal customer explicitly
+4. Use active voice and direct CTAs
+
+## Sample Rewrites
+${preview.topIssues.slice(0, 3).flatMap(issue => issue.findings?.slice(0, 1) || []).map(f => `Before: "${f.phrase}"\nAfter: "${f.rewrite}"`).join('\n\n')}
+
+---
+Generated by Website Messaging Audit | leefuhr.com`
+                          const result = await safeClipboardWrite(brief)
+                          const btn = document.getElementById('copy-brief-btn')
+                          if (btn) { btn.textContent = result.success ? 'Copied!' : 'Failed'; setTimeout(() => btn.textContent = 'Copy', 2000) }
+                        }}
+                        id="copy-brief-btn"
+                        className="text-sm bg-gray-200 text-gray-700 px-4 py-2 font-semibold hover:bg-gray-300 transition-opacity"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-body text-[var(--muted-foreground)] mb-4">
+                    A one-page summary you can hand to a copywriter or share with your team.
+                  </p>
+                  <div className="bg-gray-50 border-2 border-gray-200 rounded-lg p-6">
+                    <div className="grid md:grid-cols-2 gap-6">
+                      <div>
+                        <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wide mb-1">Differentiation score</p>
+                        <p className="text-2xl font-bold">{preview.commodityScore}/100</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wide mb-1">Pages analyzed</p>
+                        <p className="text-2xl font-bold">{preview.pagesScanned}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wide mb-1">Total rewrites</p>
+                        <p className="text-2xl font-bold">{preview.topIssues.reduce((acc, issue) => acc + (issue.findings?.length || 0), 0)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wide mb-1">Critical issues</p>
+                        <p className="text-2xl font-bold">{preview.topIssues.filter(i => i.severity === 'critical').length}</p>
+                      </div>
+                    </div>
+                    <div className="mt-6 pt-6 border-t border-gray-200">
+                      <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wide mb-2">Top 3 priorities</p>
+                      <ol className="space-y-2">
+                        {preview.topIssues.slice(0, 3).map((issue, i) => (
+                          <li key={i} className="flex items-start gap-2">
+                            <span className="text-[var(--accent)] font-bold">{i + 1}.</span>
+                            <span className="text-sm">{issue.title}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  </div>
+                </div>
+
+                {/* TRUST SIGNAL CHECKLIST */}
+                <div className="mb-12">
+                  <h3 className="text-subsection mb-4">Trust signal checklist</h3>
+                  <p className="text-body text-[var(--muted-foreground)] mb-4">
+                    Specific proof points to add to your site, based on what we found (and didn&apos;t find).
+                  </p>
+                  <div className="bg-white border-2 border-gray-200 rounded-lg divide-y divide-gray-200">
+                    {(() => {
+                      // Extract all phrases from findings to check what exists on site
+                      const allPhrases = preview.topIssues
+                        .flatMap(issue => issue.findings || [])
+                        .map(f => f.phrase?.toLowerCase() || '')
+                        .join(' ')
+
+                      // Check for specific trust signals in the scanned content
+                      const hasCustomerCount = /\d+[\+]?\s*(customers?|clients?|users?|teams?|companies|businesses)/i.test(allPhrases)
+                      const hasYears = /(since|founded|established)\s*(19|20)\d{2}|\d+\+?\s*years/i.test(allPhrases)
+                      const hasTestimonials = /(testimonial|review|said|quot|\")/i.test(allPhrases)
+                      const hasCaseStudy = /(case study|increased|improved|reduced|saved)\s*\d+/i.test(allPhrases)
+                      const hasCertifications = /(iso|soc|hipaa|certified|accredited|award)/i.test(allPhrases)
+                      const hasGuarantee = /(guarantee|warranty|money.?back|risk.?free)/i.test(allPhrases)
+                      const hasTeam = /(team|founder|ceo|leadership|about us)/i.test(allPhrases)
+                      const hasAddress = /\d+\s+[a-z]+\s+(st|street|ave|avenue|rd|road|blvd|way)|[a-z]+,\s*[a-z]{2}\s*\d{5}/i.test(allPhrases)
+
+                      const trustItems = [
+                        {
+                          check: 'Customer count',
+                          found: hasCustomerCount,
+                          tip: 'Add to hero section, above fold',
+                          suggestion: hasCustomerCount ? null : `"Trusted by [X]+ ${preview.topIssues[0]?.findings?.[0]?.rewrite?.includes('business') ? 'businesses' : 'customers'}" - use your actual count`
+                        },
+                        {
+                          check: 'Years in business',
+                          found: hasYears,
+                          tip: 'Footer or About page, also consider hero',
+                          suggestion: hasYears ? null : '"Since [year]" or "[X]+ years of experience" - this builds credibility fast'
+                        },
+                        {
+                          check: 'Named testimonials',
+                          found: hasTestimonials,
+                          tip: 'Logo bar near hero, testimonials on key pages',
+                          suggestion: hasTestimonials ? null : 'Add 2-3 customer quotes with names, titles, and company logos'
+                        },
+                        {
+                          check: 'Case study with numbers',
+                          found: hasCaseStudy,
+                          tip: 'Link from homepage, include % improvements',
+                          suggestion: hasCaseStudy ? null : '"Helped [client] achieve [X]% improvement in [metric]" - pick your best result'
+                        },
+                        {
+                          check: 'Certifications or awards',
+                          found: hasCertifications,
+                          tip: 'Footer badges, dedicated trust section',
+                          suggestion: hasCertifications ? null : 'Add any industry certifications, compliance badges, or awards you hold'
+                        },
+                        {
+                          check: 'Guarantee statement',
+                          found: hasGuarantee,
+                          tip: 'Near pricing or CTA, reduces risk',
+                          suggestion: hasGuarantee ? null : '"[X]-day money-back guarantee" or "Satisfaction guaranteed" - reduces perceived risk'
+                        },
+                        {
+                          check: 'Team visibility',
+                          found: hasTeam,
+                          tip: 'About page, humanizes the brand',
+                          suggestion: hasTeam ? null : 'Add team photos or founder story - people buy from people'
+                        },
+                        {
+                          check: 'Physical presence',
+                          found: hasAddress,
+                          tip: 'Footer, builds trust for B2B',
+                          suggestion: hasAddress ? null : 'Add office address or "Headquartered in [city]" - signals legitimacy'
+                        },
+                      ]
+
+                      return trustItems.map((item, i) => (
+                        <div key={i} className={`flex items-start gap-4 p-4 ${item.found ? 'bg-green-50' : ''}`}>
+                          <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold ${item.found ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500'}`}>
+                            {item.found ? '✓' : ''}
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className={`font-medium ${item.found ? 'text-green-700' : 'text-[var(--foreground)]'}`}>{item.check}</p>
+                              {item.found && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">Found</span>}
+                              {!item.found && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded">Missing</span>}
+                            </div>
+                            <p className="text-sm text-[var(--muted-foreground)]">{item.tip}</p>
+                            {item.suggestion && (
+                              <p className="text-sm mt-2 p-2 bg-blue-50 border-l-2 border-blue-400 text-blue-800">
+                                <strong>Add:</strong> {item.suggestion}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    })()}
+                  </div>
+                </div>
+
+                {/* COMPETITOR HEADLINES */}
+                {hasCompetitorData && data?.competitorComparison?.detailedScores && (
+                  <div className="mb-12">
+                    <h3 className="text-subsection mb-4">Competitor headline comparison</h3>
+                    <p className="text-body text-[var(--muted-foreground)] mb-4">
+                      Side-by-side positioning. What are they saying vs. what are you saying?
+                    </p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-2 border-gray-200 rounded-lg text-sm">
+                        <thead>
+                          <tr className="bg-gray-100 border-b-2 border-gray-300">
+                            <th className="text-left p-4 font-bold">Site</th>
+                            <th className="text-left p-4 font-bold">Headline</th>
+                            <th className="text-left p-4 font-bold">Score</th>
+                            <th className="text-left p-4 font-bold">Strongest area</th>
+                            <th className="text-left p-4 font-bold">Weakest area</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr className="bg-blue-50 border-b-2 border-blue-300">
+                            <td className="p-4 font-bold">{hostname} <span className="text-xs bg-blue-600 text-white px-2 py-1 rounded ml-2">YOU</span></td>
+                            <td className="p-4 italic text-gray-700 max-w-xs truncate" title={preview.siteSnapshot?.h1 || 'No H1 found'}>
+                              {preview.siteSnapshot?.h1 ? `"${preview.siteSnapshot.h1.length > 60 ? preview.siteSnapshot.h1.substring(0, 60) + '...' : preview.siteSnapshot.h1}"` : '-'}
+                            </td>
+                            <td className="p-4 font-bold">{preview.commodityScore}</td>
+                            <td className="p-4">
+                              {preview.categoryScores && (() => {
+                                const entries = Object.entries(preview.categoryScores) as [string, number][]
+                                const best = entries.sort((a, b) => b[1] - a[1])[0]
+                                const name = best[0].replace(/([A-Z])/g, ' $1').trim()
+                                return best ? `${name.charAt(0).toUpperCase() + name.slice(1)} (${best[1]}/10)` : '-'
+                              })()}
+                            </td>
+                            <td className="p-4">
+                              {preview.categoryScores && (() => {
+                                const entries = Object.entries(preview.categoryScores) as [string, number][]
+                                const worst = entries.sort((a, b) => a[1] - b[1])[0]
+                                const name = worst[0].replace(/([A-Z])/g, ' $1').trim()
+                                return worst ? `${name.charAt(0).toUpperCase() + name.slice(1)} (${worst[1]}/10)` : '-'
+                              })()}
+                            </td>
+                          </tr>
+                          {data.competitorComparison.detailedScores.map((comp, i) => (
+                            <tr key={i} className="border-b border-gray-200 hover:bg-gray-50">
+                              <td className="p-4 font-mono">{comp.url.replace(/^https?:\/\//, '').split('/')[0]}</td>
+                              <td className="p-4 italic text-gray-600 max-w-xs truncate" title={(comp as { headline?: string }).headline || 'No H1 found'}>
+                                {(comp as { headline?: string }).headline ? `"${(comp as { headline?: string }).headline!.length > 60 ? (comp as { headline?: string }).headline!.substring(0, 60) + '...' : (comp as { headline?: string }).headline}"` : '-'}
+                              </td>
+                              <td className="p-4">{comp.score}</td>
+                              <td className="p-4">
+                                {comp.categoryScores && (() => {
+                                  const entries = Object.entries(comp.categoryScores) as [string, number][]
+                                  const best = entries.sort((a, b) => b[1] - a[1])[0]
+                                  const name = best[0].replace(/([A-Z])/g, ' $1').trim()
+                                  return best ? `${name.charAt(0).toUpperCase() + name.slice(1)} (${best[1]}/10)` : '-'
+                                })()}
+                              </td>
+                              <td className="p-4">
+                                {comp.categoryScores && (() => {
+                                  const entries = Object.entries(comp.categoryScores) as [string, number][]
+                                  const worst = entries.sort((a, b) => a[1] - b[1])[0]
+                                  const name = worst[0].replace(/([A-Z])/g, ' $1').trim()
+                                  return worst ? `${name.charAt(0).toUpperCase() + name.slice(1)} (${worst[1]}/10)` : '-'
+                                })()}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                  </>
+                )}
+
+              </div>
+            </section>
+          </ViewNavBar>
         )}
 
         <Footer context={`Audit for ${companyName}`} />

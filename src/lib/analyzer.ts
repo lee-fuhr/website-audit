@@ -10,7 +10,7 @@ import { CrawledPage, CrawlResult } from './crawler';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _anthropic: any = null;
 
-async function getAnthropicClient() {
+export async function getAnthropicClient() {
   if (!_anthropic) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
@@ -146,8 +146,7 @@ export async function analyzeWebsite(
     if (error instanceof Error && 'response' in error) {
       console.error('[AI] Response:', JSON.stringify((error as { response: unknown }).response));
     }
-    console.error('[AI] API Key present:', !!process.env.ANTHROPIC_API_KEY);
-    console.error('[AI] API Key prefix:', process.env.ANTHROPIC_API_KEY?.substring(0, 20));
+    console.error('[AI] API Key configured:', !!process.env.ANTHROPIC_API_KEY);
     // Return fallback analysis if AI fails
     return generateFallbackAnalysis(crawlResult.pages, siteUrl);
   }
@@ -263,13 +262,12 @@ YOUR TASK: Find ADDITIONAL problematic phrases we missed. Look harder at:
 - Form labels and descriptions
 - Any repeated phrases across pages
 
-CRITICAL LENGTH CONSTRAINT for rewrites:
-- Keep rewrites proportional to original: -30% to +15% of original word count
-- Shorter is often BETTER (tighter copy wins)
-- A 7-word headline should get a ~5-9 word rewrite, NOT a 30-word paragraph
-- A 20-word sentence should get a ~14-23 word rewrite
-- DON'T add extra context just to fill space
-- DO make every word earn its place
+MANDATORY LENGTH CONSTRAINT (ENFORCED - violations will be rejected):
+- Rewrites MUST be approximately the same length as the original phrase
+- Maximum allowed: +20% longer than original
+- A 7-word headline gets a 5-9 word rewrite, NEVER a 30-word paragraph
+- WRONG: Original "What sets us apart" → 40-word rambling rewrite
+- RIGHT: Original "What sets us apart" → "Why 2,400 teams chose us"
 
 RESPOND IN THIS EXACT JSON FORMAT:
 {
@@ -391,13 +389,22 @@ ${p.content}
 
 YOUR TASK: Find SPECIFIC PHRASES from the actual page content that are problematic, and provide SPECIFIC REWRITES.
 
-CRITICAL LENGTH CONSTRAINT for rewrites:
-- Keep rewrites proportional to original: -30% to +15% of original word count
-- Shorter is often BETTER (tighter copy wins)
-- A 7-word headline should get a ~5-9 word rewrite, NOT a 30-word paragraph
-- A 20-word sentence should get a ~14-23 word rewrite
-- DON'T add extra context just to fill space
-- DO make every word earn its place
+QUOTE EXTRACTION RULES (CRITICAL):
+- Extract COMPLETE sentences or phrases - never cut mid-word
+- WRONG: "...nd what you want to do next" or "y over 60% of the Fortune"
+- RIGHT: "Find what you want to do next" or "Used by over 60% of the Fortune 500"
+- Start quotes at natural word boundaries (beginning of sentence, after punctuation)
+- End quotes at natural word boundaries (end of sentence, before punctuation)
+- If a phrase is very long, extract a complete clause, not a fragment
+
+MANDATORY LENGTH CONSTRAINT (ENFORCED - violations will be rejected):
+- Rewrites MUST be approximately the same length as the original phrase
+- Maximum allowed: +20% longer than original (e.g., 50 char original → max 60 char rewrite)
+- A 7-word headline gets a 5-9 word rewrite, NEVER a 30-word paragraph
+- Count the words in the original. Your rewrite should have similar word count.
+- WRONG: Original "What sets us apart" → "Unlike other project management tools that make you rebuild your entire workflow from scratch, we connect seamlessly with all your existing applications"
+- RIGHT: Original "What sets us apart" → "Why 2,400 teams chose us"
+- If you can't improve it in similar length, the rewrite should be SHORTER, not longer
 
 ISSUE CATEGORIES TO ANALYZE (find 3-5 phrases in EACH category):
 1. Generic positioning (hero/headline) - vague claims like "innovative solutions" or "leading provider"
@@ -467,7 +474,8 @@ CRITICAL REQUIREMENTS:
 5. Include pageUrl for every finding so users know where to fix it
 6. Find 3-5 proof points if they exist in the content
 7. Suggest 5 likely competitors based on industry and offerings
-8. Be brutally specific - quote actual text, provide actual replacement copy`;
+8. Be brutally specific - quote actual text, provide actual replacement copy
+9. REWRITE LENGTH RULE: Rewrites MUST be within +20% of original character count. A 30-character phrase gets a 24-36 character rewrite, NOT a 150-character paragraph. Violations will be rejected.`;
 }
 
 /**
@@ -527,20 +535,97 @@ function parseAnalysisResponse(
 
       if (Array.isArray(issue.findings) && issue.findings.length > 0) {
         // New structure: findings directly on issue
-        findings = issue.findings.map((f: Record<string, string>) => ({
-          phrase: f.phrase || '',
-          problem: f.problem || '',
-          rewrite: f.rewrite || '',
-          location: f.location || '',
-          pageUrl: f.pageUrl || '',
-        }));
+        // ENFORCE LENGTH CONSTRAINT: rewrite should be within +50% of original length
+        findings = issue.findings.map((f: Record<string, string>) => {
+          let rewrite = f.rewrite || '';
+          let phrase = f.phrase || '';
+
+          // CLEAN UP TRUNCATED PHRASES - detect and fix mid-word cuts
+          // Check for fragments that start mid-word (lowercase letter after leading ellipsis or nothing)
+          if (phrase.match(/^\.{2,}\s*[a-z]/) || phrase.match(/^[a-z]/)) {
+            // Starts with lowercase - likely truncated. Remove leading partial word if present
+            const cleanedStart = phrase.replace(/^\.{2,}\s*\w+\s+/, '').replace(/^\w+\s+/, '');
+            if (cleanedStart.length > 10) {
+              console.log(`[Parser] Cleaned truncated phrase start: "${phrase.substring(0, 30)}..." → "${cleanedStart.substring(0, 30)}..."`);
+              phrase = cleanedStart;
+            }
+          }
+          // Check for fragments that end mid-word (no punctuation, lowercase ending)
+          if (phrase.match(/[a-z]$/) && !phrase.match(/[.!?:,;]$/)) {
+            // Ends with lowercase, no punctuation - likely truncated. Add ellipsis for clarity
+            phrase = phrase.trim() + '...';
+          }
+
+          const maxLength = Math.max(phrase.length * 1.5, 100); // Allow 50% longer or min 100 chars
+
+          // If rewrite is WAY too long, truncate at sentence boundary
+          if (rewrite.length > maxLength) {
+            // Find last sentence ending before max length
+            const truncated = rewrite.substring(0, Math.floor(maxLength));
+            const lastPeriod = truncated.lastIndexOf('.');
+            const lastQuestion = truncated.lastIndexOf('?');
+            const lastExclaim = truncated.lastIndexOf('!');
+            const lastSentence = Math.max(lastPeriod, lastQuestion, lastExclaim);
+
+            if (lastSentence > 20) {
+              rewrite = truncated.substring(0, lastSentence + 1);
+            } else {
+              // No good sentence break, just truncate
+              rewrite = truncated.trim();
+            }
+            console.log(`[Parser] Truncated overly-long rewrite: ${f.rewrite?.length} → ${rewrite.length} chars`);
+          }
+
+          return {
+            phrase,
+            problem: f.problem || '',
+            rewrite,
+            location: f.location || '',
+            pageUrl: f.pageUrl || '',
+          };
+        });
       } else if (allFindingsFromPages.length > 0) {
-        // Old structure: distribute findings from pageAnalysis round-robin
-        const numIssues = Math.min(10, (parsed.topIssues || []).length);
-        findings = allFindingsFromPages.filter((_, findingIdx) => {
-          // Round-robin: finding 0 -> issue 0, finding 1 -> issue 1, etc.
-          return findingIdx % numIssues === idx;
-        }).slice(0, 5);
+        // Fallback: match findings to issues by keywords in the issue title
+        // This replaces the old round-robin which assigned findings randomly
+        const issueTitle = String(issue.title || '').toLowerCase();
+
+        // Keywords for each issue category (matches the 10 categories in the prompt)
+        const categoryKeywords: Record<string, string[]> = {
+          'positioning': ['positioning', 'hero', 'headline', 'generic positioning', 'vague positioning'],
+          'value': ['value proposition', 'vague value', 'subhead', 'value prop'],
+          'proof': ['proof point', 'proof points', 'missing proof', 'buried proof'],
+          'social': ['social proof', 'weak social', 'testimonial'],
+          'cta': ['cta', 'call-to-action', 'call to action', 'generic cta', 'button'],
+          'audience': ['target audience', 'unclear target', 'audience', 'who is this for'],
+          'differentiator': ['differentiator', 'missing differentiator', 'why choose', 'differentiation'],
+          'trust': ['trust signal', 'trust gap', 'certification', 'award', 'validation'],
+          'feature': ['feature-first', 'feature first', 'features instead', 'leading with feature'],
+          'about': ['about', 'team messaging', 'company description', 'generic about'],
+        };
+
+        // Find which category this issue belongs to
+        let matchedCategory = '';
+        for (const [category, keywords] of Object.entries(categoryKeywords)) {
+          if (keywords.some(kw => issueTitle.includes(kw))) {
+            matchedCategory = category;
+            break;
+          }
+        }
+
+        if (matchedCategory) {
+          // Filter findings whose content matches this category
+          findings = allFindingsFromPages.filter(f => {
+            const content = `${f.phrase || ''} ${f.problem || ''} ${f.location || ''}`.toLowerCase();
+            const keywords = categoryKeywords[matchedCategory] || [];
+            return keywords.some(kw => content.includes(kw));
+          }).slice(0, 5);
+        }
+
+        // If no keyword match found, leave findings empty rather than assigning randomly
+        // This prevents wrong findings appearing under wrong sections
+        if (findings.length === 0 && allFindingsFromPages.length > 0) {
+          console.log(`[Parser] No matching findings for issue "${issue.title}" - leaving empty to prevent mismatches`);
+        }
       }
 
       return {
