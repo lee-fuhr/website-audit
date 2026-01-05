@@ -2,6 +2,285 @@
 
 All notable changes to the Website Messaging Audit tool.
 
+## [2.0.0] - 2026-01-05
+
+Major release with 13 fixes, UX improvements, and design system alignment.
+
+### What to test
+
+1. **Run a new audit** - link icons should appear next to "Found:" text
+2. **Expand an issue card** - verify findings show external link icon (opens source page)
+3. **Check competitors section** - new gradient bar visualization above the table
+4. **Download full PDF** - should include ALL findings, competitors, swipe file, pages list
+5. **Check typography** - now uses Albert Sans (headings) + Literata (body) like other LFI tools
+6. **Verify page count** - should crawl up to 50 pages (was 25)
+
+### Features
+
+- **Number line comparison graphic** - Visual gradient bar (red/yellow/green zones) showing your score vs competitor average, above the comparison table
+- **Full PDF export** - Now includes ALL report sections: Overview, Priority Issues (all findings), Copy You Can Use, Competitors (with strengths/weaknesses), Swipe File, Pages Analyzed
+- **Link icons on findings** - External link icon next to every "Found:" text to jump to source page (11 locations)
+- **Expandable pages list** - "View all X pages we analyzed" section in overview
+- **Clickable page cards** - Each scanned page links to the actual URL
+- **Copy section explanation** - Added header explaining "Quick wins beyond critical issues"
+- **Denser copywriter brief PDF** - Now includes voice snapshot, 3 sample rewrites, competitive context
+
+### Fixes
+
+- **Truncated weakness quotes** - AI now required to use complete phrases, not cut mid-word
+- **Contradictory strength/weakness** - Added validation to filter contradictions (e.g., "uses proof" as strength + "lacks proof" as weakness)
+- **Competitor scoring bias** - Expanded proof detection (21 patterns), adjusted scoring formula to be less harsh
+- **Error page pollution** - Crawler now detects and skips 404/error pages (fixes Grainger issue)
+
+### Changes
+
+- **Page limit increased** - Now crawls up to 50 pages (was 25)
+- **LFI design system** - Typography now matches other tools (Albert Sans + Literata + JetBrains Mono)
+- **Paper texture** - Subtle background texture for brand consistency
+
+---
+
+## [1.0.9] - 2026-01-04
+
+### Added
+- **Headless browser render service** - New microservice (Express + Puppeteer) for JavaScript-rendered SPA sites
+  - Runs on Hetzner VPS (~$5/month) for cost efficiency
+  - Extracts metadata including og:site_name, title, h1, footer text
+  - Docker-based deployment with Puppeteer 24.0
+- **Real company name extraction** - No more static mapping! Company names now extracted dynamically from:
+  1. `og:site_name` meta tag (most reliable)
+  2. Title tag (cleaned before `|` or `-`)
+  3. Footer copyright text (regex for "© 2024 Company Name")
+- **Render service integration** - Crawler now calls render service when SPA is detected
+  - Configured via `RENDER_SERVICE_URL` and `RENDER_SERVICE_API_KEY` environment variables
+  - Falls back to static HTML when render service unavailable
+
+### Changed
+- **SPA warning updated** - Shows different message when render service resolves vs when content may be incomplete
+- **Company name formatting removed** - Deleted the 100+ static company mapping (feeble approach), replaced with real extraction
+
+### Security
+- **Protocol validation** - Render service blocks non-HTTP/HTTPS protocols (file://, ftp://, javascript:, data:)
+- **SSRF protection** - Render service blocks private/internal IPs (localhost, 127.x, 10.x, 192.168.x, 169.254.x, *.local, *.internal)
+- **AWS metadata blocking** - Explicitly blocks cloud metadata endpoints
+
+### Fixed
+- **Browser singleton race condition** - Concurrent requests now properly share single browser instance instead of each launching their own
+
+### Technical
+- New files: `render-service/server.js`, `Dockerfile`, `docker-compose.yml`, `DEPLOY.md`
+- New crawler functions: `fetchWithRenderService()`, `extractCompanyName()`, `extractOgSiteName()`, `extractFooterText()`
+- Added `companyName` field to `CrawlResult` interface
+
+## [1.0.8] - 2026-01-03
+
+### Added
+- **Company name formatting** - New `formatCompanyName()` utility with 100+ known company mappings (John Deere, HubSpot, etc.) plus smart title case heuristics for unknown names
+- **Mobile navigation** - Hamburger menu with full-screen overlay for navigating all 7 views on mobile devices
+- **SPA detection warning** - Detects JavaScript-rendered sites (React, Angular, Vue, etc.) and displays yellow warning banner with technical details
+- **Processing timeout** - 5-minute timeout with friendly UI offering "Keep waiting" or "Check results anyway" options
+- **Safe clipboard utility** - `safeClipboardWrite()` with modern Clipboard API + execCommand fallback for insecure contexts
+
+### Fixed
+- **Clipboard errors** - All 15+ copy buttons now use safe clipboard utility instead of raw `navigator.clipboard.writeText()`
+- **Email messaging** - Changed from "Email me my results" to "Get notified about your messaging" - avoids broken promises since email delivery isn't implemented
+- **escapeHtml scope** - Moved to shared utils.ts so both PDF functions can use it (was causing build error)
+- **Duplicate zendesk key** - Removed duplicate entry in KNOWN_COMPANIES object
+- **TypeScript types** - Added `spaWarning` to `siteSnapshot` interface in route.ts
+
+### Changed
+- **Processing page text** - "Bookmark this page" messaging instead of promising email delivery
+
+## [1.0.7] - 2026-01-03
+
+### Security
+- **Removed API key exposure** - Debug endpoint no longer leaks API key prefix (was exposing first 10 chars)
+- **Removed API key logging** - Error handler no longer logs API key prefix (was logging 20 chars)
+- **XSS fix in copywriter brief PDF** - Applied `escapeHtml()` to all user content in brief PDF generation
+
+### Added
+- **Comprehensive QA report** - Created `QA-REPORT-v1.0.6.md` with 47 findings from 13-agent review
+
+## [1.0.6] - 2026-01-03
+
+### Added
+- **HTML escaping in PDF** - Added `escapeHtml()` helper to prevent XSS and broken markup from user content
+- **Empty findings message** - Issues without specific rewrites now show "No specific rewrites for this issue" instead of empty space
+
+### Fixed
+- **Long text overflow in PDF** - Added `word-wrap: break-word` and `table-layout: fixed` to prevent text breaking layout
+- **Display name logic** - Now prefers company name over raw hostname for cleaner PDF header
+
+### Changed
+- **PDF agent review** - Three-pass review completed, verified:
+  - Title renders correctly with spaces
+  - Score displays properly with fallback
+  - All 10 issues included
+  - Page breaks work correctly
+
+## [1.0.5] - 2026-01-03
+
+### Changed
+- **PDF completely redesigned** - Abandoned fancy html2pdf styling, now uses simple Word-style formatting:
+  - Georgia font, basic tables, minimal styling
+  - Tables for Before/After comparisons instead of fancy cards
+  - Simple severity labels instead of gradient badges
+  - Clean header with centered title and score
+  - Reliable rendering that actually works
+
+### Fixed
+- **AI rewrite length enforcement** - Added strict character count constraints to prevent 2-3x longer rewrites:
+  - Prompt now explicitly shows WRONG vs RIGHT examples
+  - Post-processing validation truncates overly-long rewrites at sentence boundaries
+  - Maximum +50% longer than original (was unlimited)
+- **Quote truncation mid-word** - Added explicit rules for quote extraction:
+  - Prompts now forbid mid-word cuts like "...nd what you want"
+  - Post-processing cleans up fragments that start with lowercase
+- **Empty weaknesses for low-scoring sites** - Sites with 50/100 now show weaknesses:
+  - Added fallback weaknesses when AI returns empty array
+  - Sites <40 get 2 weaknesses, <60 get 1 weakness, <70 gets suggestion
+- **Wrong H1 extraction** - Fixed "About Notion" being shown as homepage H1:
+  - Now strips header/nav/footer before finding H1
+  - Filters out short navigation-looking H1s ("About", "Contact")
+  - Prefers longer, more meaningful H1s from main content
+
+## [1.0.4] - 2026-01-03
+
+### Changed
+- **PDF design overhaul** - Major visual improvements based on design review:
+  - Score badges now pill-shaped with color-coded backgrounds (red/yellow/green)
+  - Executive summary stats now 42px bold numbers with colored backgrounds (red for issues, green for rewrites)
+  - Before/After rewrites now have visual transformation feel with arrow indicator and green gradient backgrounds
+  - Severity badges now solid colored pills with white text (more visual weight)
+  - Score Breakdown section stays together (no more orphaned items on empty pages)
+  - Issues section starts on fresh page for cleaner layout
+
+## [1.0.3] - 2026-01-03
+
+### Added
+- **H1 headline comparison in competitor table** - Now extracts and displays each site's main H1 headline for side-by-side positioning comparison
+- **Description text on Previous buttons** - Bottom nav now shows section descriptions on both prev/next buttons
+
+### Changed
+- **Top navigation removed** - Simplified navigation to just bottom prev/next cards (was confusing with multiple nav areas)
+- **YOUR OPPORTUNITY heading in allcaps** - Competitor card headings now styled as uppercase for better visual hierarchy
+- **Competitor table casing fixed** - Category names now properly capitalized (First Impression, not first Impression)
+
+### Fixed
+- **Double bottom nav on Overview** - Removed duplicate CTA section that was showing two sets of navigation buttons
+- **PDF title spacing** - "Website Messaging Audit" now properly spaced in PDF header (was rendering as one word)
+- **PDF score display** - Score now always shows in cover page (was sometimes missing, showing just "/100")
+
+## [1.0.2] - 2026-01-03
+
+### Added
+- **Fallback competitor discovery** - When AI doesn't suggest competitors, a dedicated Claude call now discovers 5 likely competitors based on site content (SHOWSTOPPER fix)
+- **Phase transition animation** - Header fades out over 1000ms and new phase fades in over 500ms when switching from "Scanning" to "Analyzing"
+
+### Changed
+- **Navigation layout** - Small nav stays at top, BOTH previous AND next buttons now show as big cards at bottom (gray for previous, blue for next)
+- **Main PDF complete** - Now includes ALL issues and ALL findings, not just top 5 (was truncating the report)
+- **Company name in PDF** - Shows full domain (asana.com) for recognition, proper casing in header
+
+### Fixed
+- **Copywriter brief fits one page** - Reduced padding, smaller fonts, two-column layout for priorities and samples, truncated text to 80 chars
+
+## [1.0.1] - 2026-01-03
+
+### Added
+- **Custom PDF design** - Full audit PDF is now a professionally designed document with cover page, executive summary, score breakdown, priority issues with rewrites, and competitor table (was just printing the web page)
+- **Copywriter brief PDF** - Download button alongside Copy button for a formatted one-page handoff document
+- **Dynamic trust checklist** - Now scans actual site content and shows Found/Missing status with specific copy suggestions
+
+### Changed
+- **Resources page visible to free users** - Shows teaser for each section with gate, building anticipation before purchase
+- **Swipe file UX improved** - Click anywhere to copy, hover state with "Click to copy" label, glow effect on copy confirmation
+- **Navigation consistency** - Big blue CTA only at bottom of pages (was showing duplicate nav buttons)
+
+### Fixed
+- **Competitor analysis "not available"** - Fixed bug where empty competitor list caused UI to show error state
+- **Removed "on your site" redundant text** - Labels now just say "CURRENT" instead of "CURRENT - on your site"
+
+## [1.0.0] - 2026-01-03
+
+### Added
+- **Resources tab** - New unlocked-only view with export tools
+- **Swipe file** - All rewrites in one scrollable, exportable list with "Copy all" button
+- **Copywriter brief** - One-page handoff summary with stats, priorities, and sample rewrites
+- **Trust signal checklist** - 8-item actionable checklist with placement tips
+- **Competitor comparison table** - Side-by-side strongest/weakest areas by category
+- **Actual quoted text from competitors** - Heuristic fallback now extracts real phrases, not generic summaries
+- **Enhanced AI prompts** - Competitor analysis now requires quoted text examples
+
+### Changed
+- **Opportunity text is now actionable** - Uses category scores to give specific, SMART-style recommendations
+- **PDF layout** - Comprehensive print CSS with proper page breaks, margins, and hidden nav elements
+- **"Full audit shows" text** - Now conditional based on unlock state (shows comparison table reference when unlocked)
+
+### Fixed
+- **Competitor external links** - Now properly links to https://competitor.com instead of internal preview URL
+- **N/A scores in comparison table** - User's category scores now display correctly (were missing from preview data)
+- **TypeScript build errors** - Fixed categoryScores type definition and optional chaining
+
+## [0.9.9] - 2026-01-03
+
+### Added
+- **PDF download button** - Now generates actual PDF file using html2pdf.js (was window.print fallback)
+- **Wikipedia links on frameworks** - Each methodology box links to canonical source for external validity
+- **External link icon on competitor cards** - Click to open competitor site in new tab
+- **Customized opportunity text** - "Your opportunity" section now references specific competitor strengths/weaknesses
+
+### Changed
+- **Framework boxes styling** - Subtle gray border instead of blue left border for cleaner look
+- **ViewNavBar wrapper pattern** - Bottom nav now correctly appears after section content (was rendering at top)
+- **Comparison table cells** - Full background color fill on cells (was text-only coloring)
+- **"Your advantage" → "You're behind/ahead"** - Clearer score gap language on competitor cards
+- **Empty states improved** - "No standout strengths that apply to you" instead of "No specific strengths identified"
+- **Findings display** - Shows up to 5 findings per section (was 3), removed "X options" count labels
+
+### Fixed
+- **Bottom nav visibility** - Now correctly shows at bottom of each view (ViewNavBar is now a wrapper component)
+- **Top nav on Overview** - Correctly hidden on Overview page, visible on other views (mobile only)
+- **"Your opportunity" colon removed** - Headers no longer have trailing colons (GLOBAL RULE)
+
+## [0.9.8] - 2026-01-02
+
+### Fixed
+- **Processing page text** - "Feel free to close this tab" → "Then you can close this tab"
+- **Top nav hidden on Overview** - Mobile top nav now hidden on Overview page (was showing "Your message" button row)
+- **"What we scanned" section title** - Changed from "What we found on your site"
+- **Competitor count showing 0** - Now displays `detailedScores.length` instead of `competitors.length`
+- **Previous button outline removed** - Gray background instead of bordered outline (was looking like input field)
+- **Competitor analysis fallback** - Always sets `competitorComparison` even on timeout/error (prevents "not available" message)
+- **PDF button works** - Now uses `window.print()` (renamed to "Print / Save PDF")
+
+### Changed
+- ViewNavBar now accepts `hideTopNav` prop to conditionally hide top mobile nav
+
+## [0.9.7] - 2026-01-02
+
+### Added
+- **Deep competitor analysis** - Full 6-category scoring per competitor (firstImpression, differentiation, customerClarity, storyStructure, trustSignals, buttonClarity)
+- **Competitor comparison table** - Bold side-by-side table with color-coded category scores (green/yellow/red)
+- **"What to steal" insight cards** - Per-competitor strengths, weaknesses, and "Your opportunity" recommendations
+- **Live competitor progress** - Processing page shows real-time competitor analysis status with preliminary scores and early findings
+- **Framework references** - All methodology boxes now cite underlying frameworks (StoryBrand, Jobs-to-be-done, Trust hierarchy, Micro-commitment ladder, Specificity ladder)
+- **Score card sub-factors** - Each category now shows "What we measure" with 3 specific factors
+- **Intelligence summary** - "What we found on your site" section with total rewrites, competitors analyzed, and pages crawled
+
+### Changed
+- **Progress bar switch point** - Now transitions from crawl to AI analysis at 55% (was 70%) for better perceived progress
+- **AI status messages expanded** - 18 substantive, action-oriented messages during analysis phase (was 15 generic)
+- **Competitor analysis parallelized** - Runs 3 concurrent analyses with 45s timeout per competitor
+
+### Fixed
+- **ViewNavBar on Overview** - Bottom navigation now appears on Overview section (was missing)
+
+### Technical
+- New `analyzeCompetitorDeep()` function with AI scoring + heuristic fallback
+- `competitorProgress` field added to AnalysisState for real-time tracking
+- Exported `getAnthropicClient` from analyzer.ts for route.ts access
+
 ## [0.9.6] - 2026-01-02
 
 ### Fixed

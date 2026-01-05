@@ -66,6 +66,7 @@ function isPrivateUrl(urlString: string): boolean {
 export interface CrawledPage {
   url: string;
   title: string;
+  h1?: string;  // Main H1 headline for comparison
   content: string;
   links: string[];
   meta: {
@@ -79,6 +80,164 @@ export interface CrawlResult {
   pages: CrawledPage[];
   linkedInUrl?: string;
   errors: string[];
+  spaWarning?: {
+    isSPA: boolean;
+    indicators: string[];
+    message: string;
+  };
+  // Company name extracted from site metadata (og:site_name, title, footer)
+  companyName?: string;
+}
+
+/**
+ * Render service configuration
+ */
+const RENDER_SERVICE_URL = process.env.RENDER_SERVICE_URL;
+const RENDER_SERVICE_API_KEY = process.env.RENDER_SERVICE_API_KEY;
+
+/**
+ * Fetch a page using the headless render service (for JavaScript-heavy sites)
+ */
+async function fetchWithRenderService(url: string): Promise<{
+  html: string;
+  metadata: {
+    title: string;
+    ogSiteName: string;
+    ogTitle: string;
+    description: string;
+    h1: string;
+    footerText: string;
+  };
+} | null> {
+  if (!RENDER_SERVICE_URL || !RENDER_SERVICE_API_KEY) {
+    console.log('[Crawler] Render service not configured, skipping JS rendering');
+    return null;
+  }
+
+  try {
+    const response = await fetch(`${RENDER_SERVICE_URL}/render`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': RENDER_SERVICE_API_KEY,
+      },
+      body: JSON.stringify({ url, waitFor: 3000, timeout: 30000 }),
+    });
+
+    if (!response.ok) {
+      console.log(`[Crawler] Render service error: ${response.status}`);
+      return null;
+    }
+
+    const result = await response.json();
+    if (result.success) {
+      console.log(`[Crawler] Rendered ${url} via headless browser in ${result.elapsed}ms`);
+      return {
+        html: result.html,
+        metadata: result.metadata,
+      };
+    }
+    return null;
+  } catch (err) {
+    console.error('[Crawler] Render service fetch failed:', err);
+    return null;
+  }
+}
+
+/**
+ * Extract company name from various metadata sources
+ */
+function extractCompanyName(metadata: {
+  ogSiteName?: string;
+  ogTitle?: string;
+  title?: string;
+  footerText?: string;
+}): string | undefined {
+  // Priority 1: og:site_name (most reliable)
+  if (metadata.ogSiteName && metadata.ogSiteName.length > 1 && metadata.ogSiteName.length < 100) {
+    return metadata.ogSiteName;
+  }
+
+  // Priority 2: Clean title (before | or -)
+  if (metadata.title) {
+    const cleanTitle = metadata.title.split(/[|\-–—]/)[0].trim();
+    if (cleanTitle.length > 1 && cleanTitle.length < 50 &&
+        !cleanTitle.toLowerCase().includes('home') &&
+        !cleanTitle.toLowerCase().includes('welcome')) {
+      return cleanTitle;
+    }
+  }
+
+  // Priority 3: Footer copyright (© 2024 Company Name)
+  if (metadata.footerText) {
+    const copyrightMatch = metadata.footerText.match(/©\s*\d{4}\s+([A-Z][A-Za-z0-9\s&]+?)(?:\.|,|All|Inc|LLC|Ltd|Corp)/i);
+    if (copyrightMatch && copyrightMatch[1]) {
+      const name = copyrightMatch[1].trim();
+      if (name.length > 1 && name.length < 50) {
+        return name;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Detect if a page is an error page (404, 500, error message, etc.)
+ * Returns true if the page content indicates it's an error page
+ */
+function isErrorPage(content: string, title: string): boolean {
+  const lowerContent = content.toLowerCase();
+  const lowerTitle = title.toLowerCase();
+
+  // Error indicators in title
+  const titleErrorPatterns = [
+    /404/,
+    /not found/i,
+    /error/i,
+    /sorry/i,
+    /page.*not.*found/i,
+    /cannot.*find/i,
+    /doesn.*exist/i,
+    /unavailable/i,
+  ];
+
+  for (const pattern of titleErrorPatterns) {
+    if (pattern.test(lowerTitle)) {
+      return true;
+    }
+  }
+
+  // Error phrases in content - must be short content (error pages are typically short)
+  if (content.length < 2000) {
+    const errorPhrases = [
+      "page not found",
+      "page you requested",
+      "page cannot be found",
+      "404 error",
+      "we couldn't find",
+      "we can't find",
+      "doesn't exist",
+      "does not exist",
+      "sorry, we can't",
+      "sorry, something went wrong",
+      "this page isn't available",
+      "oops!",
+      "the page you're looking for",
+      "no longer available",
+      "has been removed",
+      "has been moved",
+      "broken link",
+    ];
+
+    for (const phrase of errorPhrases) {
+      if (lowerContent.includes(phrase)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -133,6 +292,63 @@ function extractTitle(html: string): string {
 }
 
 /**
+ * Extract H1 headline from HTML (for competitor comparison)
+ * Tries to find the MAIN hero H1, not nav/footer H1s
+ */
+function extractH1(html: string): string | undefined {
+  // First, try to strip navigation and footer areas
+  let mainContent = html
+    .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
+    .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
+    .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '');
+
+  // Find ALL H1s in the remaining content
+  const h1Pattern = /<h1[^>]*>([\s\S]*?)<\/h1>/gi;
+  const h1Candidates: string[] = [];
+
+  let match;
+  while ((match = h1Pattern.exec(mainContent)) !== null) {
+    const text = match[1]
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (text) h1Candidates.push(text);
+  }
+
+  // If no H1s found in main content, try original HTML
+  if (h1Candidates.length === 0) {
+    const fallbackPattern = /<h1[^>]*>([\s\S]*?)<\/h1>/gi;
+    while ((match = fallbackPattern.exec(html)) !== null) {
+      const text = match[1]
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (text) h1Candidates.push(text);
+    }
+  }
+
+  if (h1Candidates.length === 0) return undefined;
+
+  // Filter out likely navigation H1s (short, generic words)
+  const navWords = ['about', 'home', 'contact', 'blog', 'news', 'careers', 'login', 'sign up', 'menu', 'navigation'];
+  const isNavH1 = (h1: string) => {
+    const lower = h1.toLowerCase();
+    return h1.length < 20 && navWords.some(w => lower.includes(w));
+  };
+
+  // Prefer longer H1s that don't look like navigation
+  const validH1s = h1Candidates.filter(h1 => !isNavH1(h1) && h1.length > 5);
+
+  if (validH1s.length > 0) {
+    // Return the first valid (non-nav) H1
+    return validH1s[0];
+  }
+
+  // If all H1s were filtered out, return the longest one
+  return h1Candidates.sort((a, b) => b.length - a.length)[0];
+}
+
+/**
  * Extract meta tags from HTML
  */
 function extractMeta(html: string): CrawledPage['meta'] {
@@ -148,6 +364,114 @@ function extractMeta(html: string): CrawledPage['meta'] {
   if (ogDescMatch) meta.ogDescription = ogDescMatch[1];
 
   return meta;
+}
+
+/**
+ * Extract og:site_name meta tag from HTML
+ */
+function extractOgSiteName(html: string): string | undefined {
+  // Try content="..." property="og:site_name" format
+  const match1 = html.match(/<meta[^>]*property=["']og:site_name["'][^>]*content=["']([^"']+)["']/i);
+  if (match1) return match1[1];
+
+  // Try content="..." property="og:site_name" format (reversed order)
+  const match2 = html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:site_name["']/i);
+  if (match2) return match2[1];
+
+  return undefined;
+}
+
+/**
+ * Extract footer text from HTML for company name extraction
+ */
+function extractFooterText(html: string): string | undefined {
+  // Try to find footer element
+  const footerMatch = html.match(/<footer[^>]*>([\s\S]*?)<\/footer>/i);
+  if (footerMatch) {
+    const footerText = footerMatch[1]
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (footerText.length > 0 && footerText.length < 2000) {
+      return footerText;
+    }
+  }
+
+  // Try to find copyright notice anywhere in the page
+  const copyrightMatch = html.match(/©\s*\d{4}[^<]{0,200}/i);
+  if (copyrightMatch) {
+    return copyrightMatch[0];
+  }
+
+  return undefined;
+}
+
+/**
+ * Check if a site appears to be JavaScript-rendered (SPA)
+ * Returns indicators that suggest the site may not crawl well
+ */
+function detectSPAIndicators(html: string): {
+  isSPA: boolean
+  indicators: string[]
+} {
+  const indicators: string[] = []
+
+  // Check for common SPA framework indicators
+  if (html.includes('__NEXT_DATA__') || html.includes('_next/static')) {
+    indicators.push('Next.js detected (may be SSR - checking content)')
+  }
+  if (html.includes('ng-app') || html.includes('ng-controller') || html.match(/angular[.\-]/i)) {
+    indicators.push('Angular detected')
+  }
+  if (html.includes('data-reactroot') || html.includes('__REACT_DEVTOOLS')) {
+    indicators.push('React SPA detected')
+  }
+  if (html.includes('data-v-') || html.includes('__VUE__')) {
+    indicators.push('Vue.js detected')
+  }
+  if (html.includes('ember-view') || html.includes('EmberENV')) {
+    indicators.push('Ember detected')
+  }
+
+  // Check for empty/minimal body content (the real signal)
+  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)
+  if (bodyMatch) {
+    const bodyContent = bodyMatch[1]
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<link[^>]*>/gi, '')
+      .replace(/<meta[^>]*>/gi, '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (bodyContent.length < 200) {
+      indicators.push('Very little visible content without JavaScript')
+    }
+  }
+
+  // Check for noscript warnings
+  if (html.includes('<noscript') && html.toLowerCase().includes('javascript')) {
+    indicators.push('Site requires JavaScript to display content')
+  }
+
+  // Check for empty app root divs
+  if (html.match(/<div id="(app|root|__next)"[^>]*>(\s*)<\/div>/)) {
+    indicators.push('Empty app container (content rendered by JavaScript)')
+  }
+
+  // Only flag as SPA if we have strong indicators of client-side rendering
+  const hasMinimalContent = indicators.some(i => i.includes('Very little') || i.includes('Empty app'))
+  const hasFramework = indicators.some(i =>
+    i.includes('Angular') || i.includes('React SPA') || i.includes('Vue') || i.includes('Ember')
+  )
+
+  return {
+    isSPA: hasMinimalContent || (hasFramework && indicators.length >= 2),
+    indicators
+  }
 }
 
 // Paths to skip - not real content pages
@@ -339,17 +663,81 @@ export async function crawlWebsite(
     }
 
     // Fetch the page
-    const html = await fetchPage(url);
+    let html = await fetchPage(url);
+    let renderMetadata: { title: string; ogSiteName: string; ogTitle: string; description: string; h1: string; footerText: string } | undefined;
+
     if (!html) {
       result.errors.push(`Failed to fetch: ${url}`);
       continue;
     }
 
+    // Check for SPA on the first page (homepage)
+    if (result.pages.length === 0) {
+      const spaCheck = detectSPAIndicators(html);
+      if (spaCheck.isSPA) {
+        console.log(`[Crawler] SPA detected for ${url}:`, spaCheck.indicators);
+
+        // Try render service for JavaScript-heavy sites
+        const rendered = await fetchWithRenderService(url);
+        if (rendered) {
+          console.log(`[Crawler] Using rendered HTML from headless browser`);
+          html = rendered.html;
+          renderMetadata = rendered.metadata;
+
+          // Extract company name from render metadata
+          result.companyName = extractCompanyName(renderMetadata);
+          if (result.companyName) {
+            console.log(`[Crawler] Extracted company name: ${result.companyName}`);
+          }
+
+          // Re-check SPA indicators on rendered content
+          const recheck = detectSPAIndicators(html);
+          if (!recheck.isSPA) {
+            console.log(`[Crawler] Render service resolved SPA issues`);
+          } else {
+            result.spaWarning = {
+              isSPA: true,
+              indicators: recheck.indicators,
+              message: 'This site uses JavaScript rendering. We used a headless browser but some content may still be incomplete.'
+            };
+          }
+        } else {
+          // Render service not available - show warning
+          result.spaWarning = {
+            isSPA: true,
+            indicators: spaCheck.indicators,
+            message: 'This site appears to use JavaScript rendering. Some content may not be captured in the analysis. Results may be incomplete.'
+          };
+        }
+      } else {
+        // Not an SPA - try to extract company name from static HTML metadata
+        const staticMeta = {
+          ogSiteName: extractOgSiteName(html),
+          title: extractTitle(html),
+          footerText: extractFooterText(html),
+        };
+        result.companyName = extractCompanyName(staticMeta);
+        if (result.companyName) {
+          console.log(`[Crawler] Extracted company name: ${result.companyName}`);
+        }
+      }
+    }
+
     // Extract content
+    const title = extractTitle(html);
+    const content = extractText(html);
+
+    // Skip error pages - they pollute the analysis with irrelevant content
+    if (isErrorPage(content, title)) {
+      console.log(`[Crawler] Skipping error page: ${url}`);
+      continue;
+    }
+
     const page: CrawledPage = {
       url: normalizedUrl,
-      title: extractTitle(html),
-      content: extractText(html),
+      title,
+      h1: extractH1(html),
+      content,
       links: extractLinks(html, url),
       meta: extractMeta(html),
     };

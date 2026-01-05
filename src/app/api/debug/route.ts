@@ -14,12 +14,11 @@ export async function GET(request: NextRequest) {
     version: '0.8.7',
   };
 
-  // Check env vars (safely)
+  // Check env vars (safely - never expose key content)
   const apiKey = process.env.ANTHROPIC_API_KEY;
   results.envCheck = {
     ANTHROPIC_API_KEY_present: !!apiKey,
-    ANTHROPIC_API_KEY_length: apiKey?.length || 0,
-    ANTHROPIC_API_KEY_prefix: apiKey?.substring(0, 10) || 'NOT SET',
+    ANTHROPIC_API_KEY_configured: apiKey && apiKey.length > 20 ? 'yes' : 'no',
     NODE_ENV: process.env.NODE_ENV,
     VERCEL: process.env.VERCEL,
   };

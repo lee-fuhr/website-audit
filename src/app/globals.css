@@ -1,23 +1,28 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;900&family=Literata:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #0f172a;
-  --muted: #f1f5f9;
-  --muted-foreground: #64748b;
-  --accent: #1a3a5c;
-  --accent-foreground: #ffffff;
-  --border: #e2e8f0;
-  --success: #059669;
-  --success-bg: #d1fae5;
-  --warning: #d97706;
-  --warning-bg: #fef3c7;
+  --background: #FFFFFF;
+  --foreground: #0A0A0A;
+  --muted: #F5F5F5;
+  --muted-foreground: #525252;
+  --accent: #1e3a5f;
+  --accent-foreground: #FFFFFF;
+  --border: #E5E5E5;
+  --border-dark: #0A0A0A;
+  --success: #15803d;
+  --success-bg: #dcfce7;
+  --warning: #ca8a04;
+  --warning-bg: #fef9c3;
   --error: #dc2626;
   --error-bg: #fee2e2;
+
+  --font-display: 'Albert Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body: 'Literata', Georgia, serif;
+  --font-mono: 'JetBrains Mono', monospace;
 }
 
 * {
@@ -28,60 +33,89 @@
 
 html {
   scroll-behavior: smooth;
-}
-
-body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: var(--background);
-  color: var(--foreground);
-  line-height: 1.6;
+  font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Typography Classes */
+body {
+  background: var(--background);
+  color: var(--foreground);
+  line-height: 1.625;
+}
+
+/* Subtle paper texture */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  opacity: 0.015;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+::selection {
+  background-color: var(--foreground);
+  color: var(--background);
+}
+
+/* Typography Classes - LFI Design System */
+/* Albert Sans (display) + Literata (body) + JetBrains Mono (labels) */
+
 .text-display {
+  font-family: var(--font-display);
   font-size: clamp(2.25rem, 6vw, 4rem);
   font-weight: 900;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  color: var(--foreground);
+}
+
+.text-section {
+  font-family: var(--font-display);
+  font-size: clamp(1.5rem, 4vw, 2.5rem);
+  font-weight: 700;
   line-height: 1.1;
   letter-spacing: -0.02em;
   color: var(--foreground);
 }
 
-.text-section {
-  font-size: clamp(1.5rem, 4vw, 2.5rem);
-  font-weight: 700;
-  line-height: 1.2;
+.text-subsection {
+  font-family: var(--font-display);
+  font-size: clamp(1.125rem, 2vw, 1.5rem);
+  font-weight: 600;
+  line-height: 1.14;
   letter-spacing: -0.01em;
   color: var(--foreground);
 }
 
-.text-subsection {
-  font-size: clamp(1.125rem, 2vw, 1.5rem);
-  font-weight: 600;
-  line-height: 1.3;
-  color: var(--foreground);
-}
-
 .text-label {
+  font-family: var(--font-mono);
   font-size: 0.75rem;
-  font-weight: 600;
+  font-weight: 400;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--muted-foreground);
 }
 
 .text-body {
+  font-family: var(--font-body);
   font-size: 1rem;
   font-weight: 400;
-  line-height: 1.7;
+  line-height: 1.625;
   color: var(--foreground);
 }
 
+.text-body strong {
+  font-weight: 900;
+}
+
 .text-body-lg {
+  font-family: var(--font-body);
   font-size: 1.125rem;
   font-weight: 400;
-  line-height: 1.7;
+  line-height: 1.625;
   color: var(--foreground);
 }
 
@@ -378,13 +412,171 @@ body {
   opacity: 0.8;
 }
 
-/* Print styles */
+/* Print styles - Beautiful PDF layout */
 @media print {
-  .section {
-    padding: 2rem 0;
+  /* Base setup */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
   }
 
-  .no-print {
-    display: none;
+  html, body {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-size: 11pt;
+    line-height: 1.4;
+  }
+
+  /* Hide elements not needed in PDF */
+  .no-print,
+  nav,
+  button,
+  .sidebar,
+  footer,
+  [class*="ViewNavBar"],
+  .fixed {
+    display: none !important;
+  }
+
+  /* Page breaks */
+  .section,
+  section {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    padding: 1.5rem 0;
+  }
+
+  /* Force page breaks before major sections */
+  h2.text-section {
+    page-break-before: always;
+    break-before: always;
+    padding-top: 1rem;
+  }
+
+  /* But not for the first one */
+  h2.text-section:first-of-type {
+    page-break-before: auto;
+    break-before: auto;
+  }
+
+  /* Keep headings with content */
+  h2, h3, h4 {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  /* Tables should try to stay together */
+  table {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Cards should stay together */
+  .border-2,
+  [class*="rounded-lg"],
+  [class*="p-6"] {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Layout adjustments */
+  main {
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 1rem !important;
+  }
+
+  .container,
+  .max-w-6xl,
+  .max-w-4xl,
+  .max-w-3xl {
+    max-width: 100% !important;
+    padding: 0 !important;
+  }
+
+  /* Typography for print */
+  .text-section {
+    font-size: 18pt !important;
+    margin-bottom: 0.75rem !important;
+  }
+
+  .text-subsection {
+    font-size: 14pt !important;
+    margin-bottom: 0.5rem !important;
+  }
+
+  .text-body,
+  .text-body-lg {
+    font-size: 11pt !important;
+  }
+
+  /* Score cards - make them pop */
+  .score-bar {
+    height: 8px !important;
+    border-radius: 4px !important;
+  }
+
+  /* Tables - full width, clean borders */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  th, td {
+    border: 1px solid #e5e7eb !important;
+    padding: 0.5rem !important;
+  }
+
+  /* Grid layouts - stack on print */
+  .grid {
+    display: block !important;
+  }
+
+  .grid > * {
+    margin-bottom: 1rem !important;
+  }
+
+  /* Links - show URL */
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 9pt;
+    color: #6b7280;
+  }
+
+  /* Don't show URL for internal links */
+  a[href^="/"]::after,
+  a[href^="#"]::after {
+    content: none;
+  }
+
+  /* Simplify backgrounds */
+  .bg-gradient-to-br,
+  .bg-gradient-to-r {
+    background: #f8fafc !important;
+  }
+
+  /* Footer branding for PDF */
+  @page {
+    margin: 0.75in;
+    @bottom-center {
+      content: "Website Messaging Audit | leefuhr.com";
+      font-size: 9pt;
+      color: #9ca3af;
+    }
+    @bottom-right {
+      content: counter(page);
+      font-size: 9pt;
+      color: #9ca3af;
+    }
+  }
+
+  /* First page - no page break before */
+  @page :first {
+    margin-top: 0.5in;
   }
 }

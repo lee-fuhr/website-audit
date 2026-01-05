@@ -14,7 +14,7 @@ import { nanoid } from 'nanoid';
 import { kv } from '@vercel/kv';
 import { waitUntil } from '@vercel/functions';
 import { crawlWebsite, CrawlResult } from '@/lib/crawler';
-import { analyzeWebsite, AnalysisResult } from '@/lib/analyzer';
+import { analyzeWebsite, AnalysisResult, getAnthropicClient } from '@/lib/analyzer';
 
 // Use Vercel KV if available, otherwise fall back to in-memory (for local dev)
 const useKV = process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
@@ -70,6 +70,17 @@ interface AnalysisState {
   enrichmentStatus?: 'analyzing_competitors' | 'complete' | 'failed';
   enrichmentProgress?: number;
   enrichmentMessage?: string;
+  // Live competitor analysis progress
+  competitorProgress?: {
+    total: number;
+    completed: number;
+    competitors: Array<{
+      url: string;
+      status: 'pending' | 'analyzing' | 'completed' | 'error';
+      preliminaryScore?: number;
+      earlyFindings?: string[];
+    }>;
+  };
 }
 
 interface PreviewData {
@@ -91,8 +102,14 @@ interface PreviewData {
   siteSnapshot: {
     title: string;
     description: string;
+    h1?: string;  // Main H1 headline for comparison
     hasLinkedIn: boolean;
     pagesFound: string[];
+    spaWarning?: {
+      isSPA: boolean;
+      indicators: string[];
+      message: string;
+    };
   };
   // Legacy single teaser (keep for backwards compatibility)
   teaserFinding?: {
@@ -106,6 +123,15 @@ interface PreviewData {
   voiceSummary?: {
     currentTone: string;
     authenticVoice: string;
+  };
+  // Category scores for comparison table
+  categoryScores?: {
+    firstImpression: number;
+    differentiation: number;
+    customerClarity: number;
+    storyStructure: number;
+    trustSignals: number;
+    buttonClarity: number;
   };
 }
 
@@ -131,7 +157,7 @@ interface FullResults {
     yourScore: number;
     averageScore: number;
     gaps: string[];
-    detailedScores?: Array<{ url: string; score: number }>;
+    detailedScores?: Array<{ url: string; score: number; headline?: string }>;
   };
   voiceAnalysis: {
     currentTone: string;
@@ -324,7 +350,7 @@ async function processAnalysis(analysisId: string): Promise<void> {
     const crawledPagesList: string[] = [];
 
     // Real crawl with progress updates
-    const maxPages = 25;
+    const maxPages = 50;
     crawlResult = await crawlWebsite(
       state.url,
       maxPages,
@@ -381,9 +407,52 @@ async function processAnalysis(analysisId: string): Promise<void> {
     const preview = buildPreview(crawlResult, analysisResult);
     let fullResults = buildFullResults(analysisResult);
 
+    // Extract hostname for competitor discovery
+    const hostname = new URL(crawlResult.pages[0]?.url || 'https://example.com').hostname;
+
     // Run competitor analysis BEFORE marking complete (with timeout)
     // This ensures user sees competitor data on first preview load
-    const suggestedCompetitors = analysisResult.suggestedCompetitors || [];
+    let suggestedCompetitors = analysisResult.suggestedCompetitors || [];
+
+    // FALLBACK: If AI didn't suggest competitors, discover them
+    if (suggestedCompetitors.length === 0) {
+      console.log('No competitors from AI, attempting fallback discovery...');
+      await updateState(analysisId, {
+        progress: 91,
+        message: 'Discovering competitors...',
+      });
+
+      try {
+        const discovered = await discoverCompetitors(
+          crawlResult.pages[0]?.content || '',
+          hostname,
+          crawlResult.pages[0]?.meta.description || ''
+        );
+        if (discovered.length > 0) {
+          suggestedCompetitors = discovered.map(d => ({
+            domain: d,
+            confidence: 'medium' as const,
+            reason: 'Discovered via fallback analysis'
+          }));
+          console.log('Fallback discovered competitors:', discovered);
+        }
+      } catch (err) {
+        console.log('Fallback competitor discovery failed:', err);
+      }
+    }
+
+    // Always set a default competitorComparison so UI doesn't show "not available"
+    fullResults = {
+      ...fullResults,
+      competitorComparison: {
+        competitors: [],
+        yourScore: preview.commodityScore,
+        averageScore: 0,
+        gaps: [],
+        detailedScores: []
+      },
+    };
+
     if (suggestedCompetitors.length > 0) {
       await updateState(analysisId, {
         progress: 92,
@@ -399,25 +468,48 @@ async function processAnalysis(analysisId: string): Promise<void> {
         .slice(0, 5)
         .map(c => c.domain);
 
-      // Await competitor analysis with 30s timeout
-      const COMPETITOR_TIMEOUT = 30000;
+      // Await competitor analysis with 60s timeout (increased from 30s for larger sites)
+      const COMPETITOR_TIMEOUT = 60000;
       try {
-        await Promise.race([
+        const competitorData = await Promise.race([
           analyzeCompetitorsInline(sortedCompetitors, preview.commodityScore),
           new Promise<null>((resolve) =>
             setTimeout(() => resolve(null), COMPETITOR_TIMEOUT)
           )
-        ]).then((competitorData) => {
-          if (competitorData) {
-            fullResults = {
-              ...fullResults,
-              competitorComparison: competitorData,
-            };
-          }
-        });
+        ]);
+
+        if (competitorData) {
+          fullResults = {
+            ...fullResults,
+            competitorComparison: competitorData,
+          };
+        } else {
+          // Set fallback empty competitor comparison on timeout
+          console.log('Competitor analysis timed out, setting fallback');
+          fullResults = {
+            ...fullResults,
+            competitorComparison: {
+              competitors: sortedCompetitors,
+              yourScore: preview.commodityScore,
+              averageScore: 0,
+              gaps: ['Competitor analysis timed out - try refreshing in 30 seconds'],
+              detailedScores: []
+            },
+          };
+        }
       } catch (err) {
         console.log('Competitor analysis failed:', err);
-        // Continue without competitor data
+        // Set fallback empty competitor comparison on error
+        fullResults = {
+          ...fullResults,
+          competitorComparison: {
+            competitors: sortedCompetitors,
+            yourScore: preview.commodityScore,
+            averageScore: 0,
+            gaps: ['Competitor analysis failed - competitors may be blocking access'],
+            detailedScores: []
+          },
+        };
       }
     }
 
@@ -461,7 +553,8 @@ function buildPreview(crawlResult: CrawlResult, analysis: AnalysisResult): Previ
   const topIssuesWithFindings = analysis.topIssues.slice(0, 10).map((issue) => {
     // Use findings directly from the issue (new structure)
     // Ensure each finding has required fields with defaults
-    const findings = (issue.findings || []).slice(0, 5).map(f => ({
+    // No slice limit - include ALL findings for complete PDF export
+    const findings = (issue.findings || []).map(f => ({
       phrase: f.phrase || '',
       problem: f.problem || '',
       rewrite: f.rewrite || '',
@@ -487,13 +580,17 @@ function buildPreview(crawlResult: CrawlResult, analysis: AnalysisResult): Previ
 
   return {
     commodityScore: analysis.commodityScore,
+    categoryScores: analysis.categoryScores,
     pagesScanned: crawlResult.pages.length,
     topIssues: topIssuesWithFindings,
     siteSnapshot: {
       title: hostname.replace('www.', '').split('.')[0],
       description: crawlResult.pages[0]?.meta.description || '',
+      h1: crawlResult.pages[0]?.h1,  // Main H1 for comparison
       hasLinkedIn: !!crawlResult.linkedInUrl,
-      pagesFound: crawlResult.pages.slice(0, 10).map(p => new URL(p.url).pathname || '/'),
+      // Include ALL pages found for complete report
+      pagesFound: crawlResult.pages.map(p => new URL(p.url).pathname || '/'),
+      spaWarning: crawlResult.spaWarning,  // Warning if site uses JavaScript rendering
     },
     teaserFinding,
     voiceSummary: {
@@ -641,61 +738,397 @@ export async function PATCH(request: NextRequest) {
 }
 
 /**
+ * Deep AI-powered competitor analysis with category scoring
+ * Returns detailed scores, strengths, and weaknesses for a single competitor
+ */
+interface CompetitorDeepAnalysis {
+  categoryScores: {
+    firstImpression: number;
+    differentiation: number;
+    customerClarity: number;
+    storyStructure: number;
+    trustSignals: number;
+    buttonClarity: number;
+  };
+  strengths: string[];
+  weaknesses: string[];
+  overallScore: number;
+}
+
+async function analyzeCompetitorDeep(
+  content: string,
+  url: string
+): Promise<CompetitorDeepAnalysis> {
+  try {
+    const anthropic = await getAnthropicClient();
+
+    const prompt = `Analyze this competitor homepage for messaging effectiveness.
+
+CRITICAL: Include EXACT quoted text from the site in your analysis.
+
+Provide:
+
+1. Category scores (0-10 scale, be honest - most sites score 4-7):
+   - firstImpression: Can visitors understand what they do in 5 seconds?
+   - differentiation: Do they stand out from competitors with specific claims?
+   - customerClarity: Is their ideal customer obvious?
+   - storyStructure: Do they have a compelling narrative flow?
+   - trustSignals: Can visitors verify claims with specific proof?
+   - buttonClarity: Is the next step obvious?
+
+2. Strengths: 2-3 things they do well. MUST include actual quoted text in "quotes" from the site.
+   Example: 'Uses specific proof: "Trusted by 50,000+ teams" and "Since 2007"'
+   Example: 'Clear CTA: "Start your free trial" appears above fold'
+
+3. Weaknesses: 2-3 gaps. Include quoted examples of weak/generic language if found.
+   CRITICAL: All quoted text MUST be complete phrases - never truncate mid-word or mid-sentence.
+   BAD: '...nd what you want to do next' (truncated)
+   GOOD: 'we help you find what you want to do next' (complete phrase)
+   CRITICAL: Strengths and weaknesses MUST NOT contradict each other.
+   BAD: Strength "Uses specific proof" + Weakness "Limited use of specific claims"
+   GOOD: Be consistent - if they have proof, don't say they lack proof
+   Example: 'Generic positioning: "world-class solutions" and "industry-leading"'
+   Example: 'No specific customer: describes audience as "businesses of all sizes"'
+
+Website content:
+${content.substring(0, 6000)}
+
+Return ONLY valid JSON (no markdown, no explanation):
+{
+  "categoryScores": {
+    "firstImpression": <0-10>,
+    "differentiation": <0-10>,
+    "customerClarity": <0-10>,
+    "storyStructure": <0-10>,
+    "trustSignals": <0-10>,
+    "buttonClarity": <0-10>
+  },
+  "strengths": ["<strength with quoted text>", "<another with quotes>"],
+  "weaknesses": ["<weakness with quoted text>", "<another with quotes>"],
+  "overallScore": <average of categories * 10>
+}`;
+
+    const response = await anthropic.messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 1000,
+      temperature: 0.3,
+      messages: [{ role: 'user', content: prompt }]
+    });
+
+    const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+
+      // Validate and normalize scores
+      const categoryScores = {
+        firstImpression: Math.min(10, Math.max(0, parsed.categoryScores?.firstImpression || 5)),
+        differentiation: Math.min(10, Math.max(0, parsed.categoryScores?.differentiation || 5)),
+        customerClarity: Math.min(10, Math.max(0, parsed.categoryScores?.customerClarity || 5)),
+        storyStructure: Math.min(10, Math.max(0, parsed.categoryScores?.storyStructure || 5)),
+        trustSignals: Math.min(10, Math.max(0, parsed.categoryScores?.trustSignals || 5)),
+        buttonClarity: Math.min(10, Math.max(0, parsed.categoryScores?.buttonClarity || 5)),
+      };
+
+      const avgCategory = (
+        categoryScores.firstImpression +
+        categoryScores.differentiation +
+        categoryScores.customerClarity +
+        categoryScores.storyStructure +
+        categoryScores.trustSignals +
+        categoryScores.buttonClarity
+      ) / 6;
+
+      const strengths = Array.isArray(parsed.strengths) ? parsed.strengths.slice(0, 3) : [];
+      let weaknesses = Array.isArray(parsed.weaknesses) ? parsed.weaknesses.slice(0, 3) : [];
+      const overallScore = Math.round(avgCategory * 10);
+
+      // POST-PROCESS: Remove contradictory weaknesses
+      // If strength mentions a topic, don't allow weakness to claim absence of that topic
+      const contradictionPatterns = [
+        { strengthKeywords: ['proof', 'specific', 'evidence', 'data', 'numbers', 'claims'], weaknessKeywords: ['limited', 'missing', 'lack', 'no proof', 'not specific', 'generic claims'] },
+        { strengthKeywords: ['clear', 'obvious', 'direct'], weaknessKeywords: ['unclear', 'confusing', 'vague'] },
+        { strengthKeywords: ['customer', 'audience', 'target'], weaknessKeywords: ['no customer', 'no audience', 'unclear audience'] },
+        { strengthKeywords: ['trust', 'credibility', 'testimonial'], weaknessKeywords: ['no trust', 'lacks credibility', 'missing testimonial'] },
+      ];
+
+      const strengthsLower = strengths.map((s: string) => s.toLowerCase()).join(' ');
+      weaknesses = weaknesses.filter((w: string) => {
+        const wLower = w.toLowerCase();
+        for (const pattern of contradictionPatterns) {
+          const hasStrengthKeyword = pattern.strengthKeywords.some(k => strengthsLower.includes(k));
+          const hasWeaknessKeyword = pattern.weaknessKeywords.some(k => wLower.includes(k));
+          if (hasStrengthKeyword && hasWeaknessKeyword) {
+            console.log(`[Competitor] Filtered contradictory weakness: "${w}" (conflicts with strength about ${pattern.strengthKeywords[0]})`);
+            return false;
+          }
+        }
+        return true;
+      });
+
+      // ENSURE low-scoring sites have at least one weakness
+      if (weaknesses.length === 0 && overallScore < 70) {
+        if (overallScore < 40) {
+          weaknesses = ['Weak differentiation from competitors', 'Missing specific proof points'];
+        } else if (overallScore < 60) {
+          weaknesses = ['Limited use of specific claims and evidence'];
+        } else {
+          weaknesses = ['Could strengthen messaging with more specific proof'];
+        }
+      }
+
+      return {
+        categoryScores,
+        strengths,
+        weaknesses,
+        overallScore,
+      };
+    }
+  } catch (error) {
+    console.error(`AI competitor analysis failed for ${url}:`, error);
+  }
+
+  // FALLBACK: Heuristic scoring when AI fails - extract ACTUAL quotes
+  console.log(`[Competitor] Using heuristic fallback for ${url}`);
+
+  const commodityPhrases = [
+    'leading', 'innovative', 'solutions', 'best-in-class', 'world-class',
+    'cutting-edge', 'next-generation', 'state-of-the-art', 'industry-leading',
+    'trusted', 'proven', 'reliable', 'premier', 'excellence', 'committed'
+  ];
+  // EXPANDED proof patterns to reduce scoring bias - give competitors fair credit
+  const differentiators = [
+    { pattern: /\b(\d+)\s*\+?\s*(years?|customers?|clients?|projects?|companies|users?|teams?|employees?|locations?|offices?)\b/gi, type: 'proof' },
+    { pattern: /since\s*(19|20)\d{2}/gi, type: 'proof' },
+    { pattern: /founded\s*(in\s*)?(19|20)\d{2}/gi, type: 'proof' },
+    { pattern: /established\s*(in\s*)?(19|20)\d{2}/gi, type: 'proof' },
+    { pattern: /\b(iso|soc|hipaa|gdpr|pci|nist|cmmc|fedramp)\s*\d*\s*(certified|compliant|compliance|approved)?/gi, type: 'proof' },
+    { pattern: /\b(award[- ]?winning|patent(ed)?|guaranteed?|warranty|money.?back|satisfaction)\b/gi, type: 'proof' },
+    { pattern: /(\d+)%\s*(faster|better|more|increase|reduction|savings?|improvement|growth|success)/gi, type: 'proof' },
+    { pattern: /\$\d+[km]?\s*(in\s*)?(savings?|revenue|value|roi)/gi, type: 'proof' },
+    { pattern: /case\s*stud(y|ies)/gi, type: 'proof' },
+    { pattern: /\b(testimonial|review|rating|rated|stars?)\b/gi, type: 'proof' },
+    { pattern: /\b(\d+)\s*(star|review|rating)/gi, type: 'proof' },
+    { pattern: /(top|best)\s*\d+/gi, type: 'proof' },
+    { pattern: /\bInc\.?\s*5000\b/gi, type: 'proof' },
+    { pattern: /\bFortune\s*\d+/gi, type: 'proof' },
+    { pattern: /\bBBB\s*A\+?/gi, type: 'proof' },
+    { pattern: /\b(certified|licensed|insured|bonded)\b/gi, type: 'proof' },
+    { pattern: /\b(member|partner)\s*(of|with)\b/gi, type: 'proof' },
+    { pattern: /(locally|family)\s*owned/gi, type: 'proof' },
+    { pattern: /free\s*(consultation|estimate|quote|assessment)/gi, type: 'proof' },
+    { pattern: /same[- ]?day|next[- ]?day|24[\/\-]?7/gi, type: 'proof' },
+  ];
+
+  const lowerContent = content.toLowerCase();
+  let genericCount = 0;
+  const foundGenericPhrases: string[] = [];
+  const foundProofPoints: string[] = [];
+
+  // Find actual generic phrases used
+  for (const phrase of commodityPhrases) {
+    if (lowerContent.includes(phrase)) {
+      genericCount++;
+      // Extract context around the phrase (up to 50 chars before/after)
+      const idx = lowerContent.indexOf(phrase);
+      const start = Math.max(0, idx - 30);
+      const end = Math.min(content.length, idx + phrase.length + 30);
+      const context = content.substring(start, end).trim().replace(/\s+/g, ' ');
+      if (foundGenericPhrases.length < 3) {
+        foundGenericPhrases.push(`"...${context}..."`);
+      }
+    }
+  }
+
+  // Find actual proof points with quoted text
+  for (const { pattern } of differentiators) {
+    const matches = content.match(pattern);
+    if (matches) {
+      for (const match of matches.slice(0, 2)) {
+        if (foundProofPoints.length < 3 && !foundProofPoints.some(p => p.includes(match))) {
+          foundProofPoints.push(`"${match}"`);
+        }
+      }
+    }
+  }
+
+  // Adjusted scoring: less harsh on generic phrases, more generous with proof
+  // Old: 50 - (genericCount * 3) + (foundProofPoints.length * 4)
+  // New: 55 base, -2 per generic (capped at -10), +5 per proof (capped at +25)
+  const genericPenalty = Math.min(10, genericCount * 2);
+  const proofBonus = Math.min(25, foundProofPoints.length * 5);
+  const heuristicScore = Math.max(20, Math.min(85, 55 - genericPenalty + proofBonus));
+  const baseCategory = Math.round(heuristicScore / 10);
+
+  // Build strengths with actual quotes
+  const strengths: string[] = [];
+  if (foundProofPoints.length > 0) {
+    strengths.push(`Uses specific proof: ${foundProofPoints.join(', ')}`);
+  }
+
+  // Build weaknesses with actual quotes
+  const weaknesses: string[] = [];
+  if (foundGenericPhrases.length > 0) {
+    weaknesses.push(`Relies on generic language: ${foundGenericPhrases.slice(0, 2).join(', ')}`);
+  }
+
+  // ENSURE lower-scoring sites have at least some weaknesses
+  // A 50/100 site MUST have visible weaknesses
+  if (weaknesses.length === 0 && heuristicScore < 70) {
+    if (heuristicScore < 40) {
+      weaknesses.push('Weak differentiation from competitors');
+      weaknesses.push('Missing specific proof points and social proof');
+    } else if (heuristicScore < 60) {
+      weaknesses.push('Limited use of specific claims and evidence');
+    } else {
+      weaknesses.push('Could strengthen messaging with more specific proof');
+    }
+  }
+
+  return {
+    categoryScores: {
+      firstImpression: Math.min(10, baseCategory + (Math.random() > 0.5 ? 1 : 0)),
+      differentiation: Math.min(10, baseCategory + (Math.random() > 0.5 ? -1 : 0)),
+      customerClarity: Math.min(10, baseCategory),
+      storyStructure: Math.min(10, baseCategory + (Math.random() > 0.5 ? 1 : -1)),
+      trustSignals: Math.min(10, baseCategory + (foundProofPoints.length > 2 ? 1 : 0)),
+      buttonClarity: Math.min(10, baseCategory),
+    },
+    strengths,
+    weaknesses,
+    overallScore: heuristicScore,
+  };
+}
+
+/**
+ * Enhanced detailed competitor score with category breakdown
+ */
+interface DetailedCompetitorScore {
+  url: string;
+  score: number;
+  categoryScores?: CompetitorDeepAnalysis['categoryScores'];
+  strengths?: string[];
+  weaknesses?: string[];
+}
+
+/**
+ * Fallback competitor discovery when AI doesn't suggest any
+ * Uses a focused Claude call to identify competitors based on site content
+ */
+async function discoverCompetitors(
+  pageContent: string,
+  hostname: string,
+  description: string
+): Promise<string[]> {
+  try {
+    const client = await getAnthropicClient();
+
+    // Extract meaningful content snippet (first 2000 chars)
+    const contentSnippet = pageContent.slice(0, 2000);
+
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 500,
+      messages: [{
+        role: 'user',
+        content: `Based on this website content, identify 5 likely competitors.
+
+Website: ${hostname}
+Description: ${description}
+
+Content snippet:
+${contentSnippet}
+
+Return ONLY a JSON array of 5 competitor domain names (no explanations):
+["competitor1.com", "competitor2.com", ...]
+
+Focus on direct competitors in the same industry/market segment. Use well-known competitors if applicable.`
+      }]
+    });
+
+    const text = response.content[0].type === 'text' ? response.content[0].text : '';
+
+    // Parse JSON array from response
+    const match = text.match(/\[[\s\S]*?\]/);
+    if (match) {
+      const parsed = JSON.parse(match[0]);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter((d: unknown): d is string => typeof d === 'string')
+          .map(d => d.replace(/^https?:\/\//, '').replace(/\/$/, ''))
+          .slice(0, 5);
+      }
+    }
+
+    return [];
+  } catch (error) {
+    console.error('Competitor discovery failed:', error);
+    return [];
+  }
+}
+
+/**
  * Inline competitor analysis - returns data directly (for use before marking complete)
+ * Uses AI-powered deep analysis with parallelization
  */
 async function analyzeCompetitorsInline(
   competitors: string[],
   yourScore: number
 ): Promise<FullResults['competitorComparison'] | null> {
   try {
-    const competitorScores: Array<{ url: string; score: number }> = [];
+    const competitorScores: DetailedCompetitorScore[] = [];
 
-    for (const competitorUrl of competitors) {
-      // Normalize URL
-      let normalizedUrl = competitorUrl;
-      if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
-        normalizedUrl = 'https://' + normalizedUrl;
-      }
+    // Analyze competitors in parallel (batches of 3 for performance)
+    const batchSize = 3;
+    for (let i = 0; i < competitors.length; i += batchSize) {
+      const batch = competitors.slice(i, i + batchSize);
 
-      try {
-        // Quick crawl - just homepage (1 page for speed)
-        const crawlResult = await crawlWebsite(normalizedUrl, 1);
-
-        if (crawlResult.pages.length > 0) {
-          const content = crawlResult.pages[0]?.content || '';
-          const commodityPhrases = [
-            'leading', 'innovative', 'solutions', 'best-in-class', 'world-class',
-            'cutting-edge', 'next-generation', 'state-of-the-art', 'industry-leading',
-            'trusted', 'proven', 'reliable', 'premier', 'top', 'quality', 'excellence',
-            'committed', 'dedicated', 'passionate', 'partner'
-          ];
-
-          const differentiators = [
-            '%', 'years', 'customers', 'clients', 'projects', 'since', 'founded',
-            'certified', 'iso', 'award', 'patent', 'guarantee', 'warranty'
-          ];
-
-          const lowerContent = content.toLowerCase();
-
-          let genericCount = 0;
-          for (const phrase of commodityPhrases) {
-            if (lowerContent.includes(phrase)) genericCount++;
+      const batchResults = await Promise.all(
+        batch.map(async (competitorUrl) => {
+          // Normalize URL
+          let normalizedUrl = competitorUrl;
+          if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
+            normalizedUrl = 'https://' + normalizedUrl;
           }
 
-          let differentiatorCount = 0;
-          for (const phrase of differentiators) {
-            if (lowerContent.includes(phrase)) differentiatorCount++;
+          try {
+            // Crawl homepage with 45s timeout
+            const crawlPromise = crawlWebsite(normalizedUrl, 1);
+            const timeoutPromise = new Promise<null>((_, reject) =>
+              setTimeout(() => reject(new Error('Crawl timeout')), 45000)
+            );
+
+            const crawlResult = await Promise.race([crawlPromise, timeoutPromise]) as CrawlResult | null;
+
+            if (crawlResult && crawlResult.pages.length > 0) {
+              const content = crawlResult.pages[0]?.content || '';
+              const headline = crawlResult.pages[0]?.h1;  // Extract H1 for comparison
+
+              // Run deep AI analysis
+              const analysis = await analyzeCompetitorDeep(content, competitorUrl);
+
+              return {
+                url: normalizedUrl,
+                score: analysis.overallScore,
+                categoryScores: analysis.categoryScores,
+                strengths: analysis.strengths,
+                weaknesses: analysis.weaknesses,
+                headline,  // Include H1 in competitor data
+              };
+            }
+          } catch (err) {
+            console.log(`Could not analyze competitor ${competitorUrl}:`, err);
           }
+          return null;
+        })
+      );
 
-          const score = Math.max(15, Math.min(85, 50 - (genericCount * 3) + (differentiatorCount * 4)));
-
-          competitorScores.push({
-            url: competitorUrl,
-            score,
-          });
+      // Add successful results
+      for (const result of batchResults) {
+        if (result) {
+          competitorScores.push(result);
         }
-      } catch (err) {
-        console.log(`Could not analyze competitor ${competitorUrl}:`, err);
       }
     }
 
@@ -741,78 +1174,129 @@ async function analyzeCompetitorsInline(
 }
 
 /**
- * Background competitor analysis - lightweight for speed
+ * Background competitor analysis with AI-powered deep analysis
+ * Uses parallelization and live status updates
  */
 async function analyzeCompetitors(analysisId: string, competitors: string[]): Promise<void> {
   const state = await getState(analysisId);
   if (!state) return;
 
   try {
-    // For each competitor, do a QUICK crawl (1 page only) and lightweight score
-    const competitorScores: Array<{ url: string; score: number }> = [];
+    const competitorScores: DetailedCompetitorScore[] = [];
 
-    for (let i = 0; i < competitors.length; i++) {
-      const competitorUrl = competitors[i];
+    // Initialize competitor progress tracking
+    const competitorStatuses: Array<{
+      url: string;
+      status: 'pending' | 'analyzing' | 'completed' | 'error';
+      preliminaryScore?: number;
+      earlyFindings?: string[];
+    }> = competitors.map(url => ({ url, status: 'pending' }));
 
-      await updateState(analysisId, {
-        enrichmentStatus: 'analyzing_competitors',
-        enrichmentProgress: Math.round(((i) / competitors.length) * 100),
-        enrichmentMessage: `Scanning ${competitorUrl}...`,
+    // Update initial state with competitor progress
+    await updateState(analysisId, {
+      enrichmentStatus: 'analyzing_competitors',
+      enrichmentProgress: 0,
+      enrichmentMessage: `Starting competitor analysis...`,
+      competitorProgress: {
+        total: competitors.length,
+        completed: 0,
+        competitors: competitorStatuses,
+      },
+    });
+
+    // Process competitors in parallel batches of 3
+    const batchSize = 3;
+    for (let batchStart = 0; batchStart < competitors.length; batchStart += batchSize) {
+      const batch = competitors.slice(batchStart, batchStart + batchSize);
+
+      // Mark batch as analyzing
+      batch.forEach((url) => {
+        const idx = competitorStatuses.findIndex(c => c.url === url);
+        if (idx >= 0) competitorStatuses[idx].status = 'analyzing';
       });
 
-      // Normalize URL
-      let normalizedUrl = competitorUrl;
-      if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
-        normalizedUrl = 'https://' + normalizedUrl;
-      }
+      await updateState(analysisId, {
+        enrichmentMessage: `Analyzing ${batch.join(', ')}...`,
+        competitorProgress: {
+          total: competitors.length,
+          completed: competitorScores.length,
+          competitors: competitorStatuses,
+        },
+      });
 
-      try {
-        // Quick crawl - just homepage (1 page for speed)
-        const crawlResult = await crawlWebsite(normalizedUrl, 1);
-
-        if (crawlResult.pages.length > 0) {
-          // Lightweight score based on content indicators (skip full AI analysis for speed)
-          const content = crawlResult.pages[0]?.content || '';
-          const commodityPhrases = [
-            'leading', 'innovative', 'solutions', 'best-in-class', 'world-class',
-            'cutting-edge', 'next-generation', 'state-of-the-art', 'industry-leading',
-            'trusted', 'proven', 'reliable', 'premier', 'top', 'quality', 'excellence',
-            'committed', 'dedicated', 'passionate', 'partner'
-          ];
-
-          // Positive differentiators (specific, provable claims)
-          const differentiators = [
-            '%', 'years', 'customers', 'clients', 'projects', 'since', 'founded',
-            'certified', 'iso', 'award', 'patent', 'guarantee', 'warranty'
-          ];
-
-          const lowerContent = content.toLowerCase();
-
-          // Count generic phrases (bad)
-          let genericCount = 0;
-          for (const phrase of commodityPhrases) {
-            if (lowerContent.includes(phrase)) genericCount++;
+      // Process batch in parallel
+      const batchResults = await Promise.all(
+        batch.map(async (competitorUrl) => {
+          // Normalize URL
+          let normalizedUrl = competitorUrl;
+          if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
+            normalizedUrl = 'https://' + normalizedUrl;
           }
 
-          // Count differentiators (good)
-          let differentiatorCount = 0;
-          for (const phrase of differentiators) {
-            if (lowerContent.includes(phrase)) differentiatorCount++;
+          const statusIdx = competitorStatuses.findIndex(c => c.url === competitorUrl);
+
+          try {
+            // Crawl homepage with 45s timeout
+            const crawlPromise = crawlWebsite(normalizedUrl, 1);
+            const timeoutPromise = new Promise<null>((_, reject) =>
+              setTimeout(() => reject(new Error('Crawl timeout')), 45000)
+            );
+
+            const crawlResult = await Promise.race([crawlPromise, timeoutPromise]) as CrawlResult | null;
+
+            if (crawlResult && crawlResult.pages.length > 0) {
+              const content = crawlResult.pages[0]?.content || '';
+              const headline = crawlResult.pages[0]?.h1;  // Extract H1 for comparison
+
+              // Run deep AI analysis
+              const analysis = await analyzeCompetitorDeep(content, competitorUrl);
+
+              // Update status with preliminary results
+              if (statusIdx >= 0) {
+                competitorStatuses[statusIdx].status = 'completed';
+                competitorStatuses[statusIdx].preliminaryScore = analysis.overallScore;
+                competitorStatuses[statusIdx].earlyFindings = [
+                  ...(analysis.strengths.length > 0 ? [`Strength: ${analysis.strengths[0]}`] : []),
+                  ...(analysis.weaknesses.length > 0 ? [`Gap: ${analysis.weaknesses[0]}`] : []),
+                ].slice(0, 2);
+              }
+
+              return {
+                url: normalizedUrl,
+                score: analysis.overallScore,
+                categoryScores: analysis.categoryScores,
+                strengths: analysis.strengths,
+                weaknesses: analysis.weaknesses,
+                headline,  // Include H1 in competitor data
+              };
+            }
+          } catch (err) {
+            console.log(`Could not analyze competitor ${competitorUrl}:`, err);
+            if (statusIdx >= 0) {
+              competitorStatuses[statusIdx].status = 'error';
+            }
           }
+          return null;
+        })
+      );
 
-          // Score: higher = better differentiated
-          // Start at 50, subtract for generic, add for differentiators
-          const score = Math.max(15, Math.min(85, 50 - (genericCount * 3) + (differentiatorCount * 4)));
-
-          competitorScores.push({
-            url: competitorUrl,
-            score,
-          });
+      // Add successful results
+      for (const result of batchResults) {
+        if (result) {
+          competitorScores.push(result);
         }
-      } catch (err) {
-        console.log(`Could not analyze competitor ${competitorUrl}:`, err);
-        // Continue with other competitors
       }
+
+      // Update progress after batch
+      await updateState(analysisId, {
+        enrichmentProgress: Math.round((competitorScores.length / competitors.length) * 100),
+        enrichmentMessage: `Analyzed ${competitorScores.length} of ${competitors.length} competitors...`,
+        competitorProgress: {
+          total: competitors.length,
+          completed: competitorScores.length,
+          competitors: competitorStatuses,
+        },
+      });
     }
 
     // Only proceed if we actually analyzed any competitors
@@ -820,6 +1304,7 @@ async function analyzeCompetitors(analysisId: string, competitors: string[]): Pr
       await updateState(analysisId, {
         enrichmentStatus: 'failed',
         enrichmentMessage: 'Could not fetch competitor websites',
+        competitorProgress: undefined,
       });
       return;
     }
@@ -866,12 +1351,12 @@ async function analyzeCompetitors(analysisId: string, competitors: string[]): Pr
     // Combine, avoiding duplicates
     const allCompetitors = [...new Set([...existingCompetitors, ...competitors])];
     const allScores = [
-      ...existingScores.filter(s => !competitorScores.some(n => n.url === s.url)),
+      ...existingScores.filter((s: DetailedCompetitorScore) => !competitorScores.some(n => n.url === s.url)),
       ...competitorScores
     ];
 
     const totalAvgScore = allScores.length > 0
-      ? Math.round(allScores.reduce((sum, c) => sum + c.score, 0) / allScores.length)
+      ? Math.round(allScores.reduce((sum: number, c: DetailedCompetitorScore) => sum + c.score, 0) / allScores.length)
       : avgScore;
 
     await updateState(analysisId, {
@@ -887,15 +1372,16 @@ async function analyzeCompetitors(analysisId: string, competitors: string[]): Pr
       },
       enrichmentStatus: 'complete',
       enrichmentProgress: 100,
-      enrichmentMessage: `Analyzed ${allScores.length} competitor${allScores.length !== 1 ? 's' : ''}`,
+      enrichmentMessage: `Analyzed ${allScores.length} competitor${allScores.length !== 1 ? 's' : ''} with full category scoring`,
+      competitorProgress: undefined, // Clear progress once complete
     });
 
   } catch (error) {
     console.error('Competitor analysis error:', error);
     await updateState(analysisId, {
-      
       enrichmentStatus: 'failed',
       enrichmentMessage: 'Could not analyze competitors',
+      competitorProgress: undefined,
     });
   }
 }

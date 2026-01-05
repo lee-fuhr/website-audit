@@ -12,6 +12,24 @@ const styles = `
     100% { opacity: 0; }
   }
 
+  @keyframes phaseOut {
+    0% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  @keyframes phaseIn {
+    0% { opacity: 0; }
+    100% { opacity: 1; }
+  }
+
+  .phase-out {
+    animation: phaseOut 1s ease-out forwards;
+  }
+
+  .phase-in {
+    animation: phaseIn 0.5s ease-in forwards;
+  }
+
   @keyframes shimmer {
     0% {
       background-position: -200px 0;
@@ -113,6 +131,16 @@ function ProcessingContent() {
     currentUrl: string;
     status: string;
     crawledPages: string[];
+    competitorProgress?: {
+      total: number;
+      completed: number;
+      competitors: Array<{
+        url: string;
+        status: 'pending' | 'analyzing' | 'completed' | 'error';
+        preliminaryScore?: number;
+        earlyFindings?: string[];
+      }>;
+    };
   }>({
     progress: 0,
     message: 'Starting analysis...',
@@ -141,24 +169,37 @@ function ProcessingContent() {
   const [aiStatusIndex, setAiStatusIndex] = useState(0)
   const [stuckTime, setStuckTime] = useState(0)
   const [showEmailPrompt, setShowEmailPrompt] = useState(false)
-  const [fakeProgress, setFakeProgress] = useState(70)
+  const [fakeProgress, setFakeProgress] = useState(55)
+
+  // Phase transition animation state
+  const [phaseTransition, setPhaseTransition] = useState<'none' | 'fading-out' | 'fading-in'>('none')
+  const [displayedPhase, setDisplayedPhase] = useState<'scanning' | 'analyzing'>('scanning')
+  const prevStatusRef = useRef<string>('pending')
+
+  // Processing timeout (5 minutes max)
+  const processingStartRef = useRef<number>(Date.now())
+  const [isTimedOut, setIsTimedOut] = useState(false)
+  const PROCESSING_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
   const aiStatusMessages = [
-    'Analyzing hero headlines and positioning...',
-    'Evaluating value propositions...',
-    'Checking proof points and social proof...',
-    'Reviewing call-to-action clarity...',
-    'Assessing target audience specificity...',
-    'Detecting your target audience clarity...',
-    'Reviewing your competitive differentiation...',
-    'Checking social proof elements...',
-    'Examining trust signals...',
+    'Reading your homepage headline and hero section...',
+    'Checking if visitors can understand what you do in 5 seconds...',
+    'Evaluating your value proposition clarity...',
+    'Looking for specific proof points and numbers...',
+    'Analyzing your call-to-action buttons...',
+    'Checking if your ideal customer is obvious...',
+    'Reviewing how you differentiate from competitors...',
+    'Examining your social proof and testimonials...',
+    'Looking for trust signals and credibility markers...',
     'Analyzing feature vs benefit framing...',
-    'Reviewing navigation and user flow...',
-    'Checking testimonial placement...',
-    'Analyzing brand voice consistency...',
-    'Examining technical messaging...',
-    'Finalizing comprehensive analysis...',
+    'Checking your story structure and narrative flow...',
+    'Reviewing button copy and next-step clarity...',
+    'Analyzing brand voice consistency across pages...',
+    'Identifying commodity language patterns...',
+    'Finding specific phrases to rewrite...',
+    'Generating copy-paste replacement suggestions...',
+    'Scoring each category against best practices...',
+    'Preparing your personalized recommendations...',
   ]
 
   const MAX_COMPETITORS = 5
@@ -345,8 +386,16 @@ function ProcessingContent() {
     }
 
     let pollTimeout: NodeJS.Timeout
+    processingStartRef.current = Date.now() // Reset start time
 
     const pollStatus = async () => {
+      // Check for 5-minute timeout
+      const elapsed = Date.now() - processingStartRef.current
+      if (elapsed > PROCESSING_TIMEOUT_MS) {
+        setIsTimedOut(true)
+        return
+      }
+
       try {
         const response = await fetch(`/api/analyze?id=${analysisId}`)
         const result = await response.json()
@@ -370,6 +419,7 @@ function ProcessingContent() {
           currentUrl: analysis.currentUrl || prev.currentUrl,
           status: analysis.status,
           crawledPages: analysis.crawledPages || prev.crawledPages,
+          competitorProgress: analysis.competitorProgress || prev.competitorProgress,
         }))
 
         if (analysis.status === 'complete') {
@@ -394,12 +444,37 @@ function ProcessingContent() {
     }
   }, [analysisId, router])
 
+  // Detect phase transition from scanning to analyzing and trigger animation
+  useEffect(() => {
+    const prevStatus = prevStatusRef.current
+    const currentStatus = status.status
+
+    // Detect transition to analyzing phase
+    if (currentStatus === 'analyzing' && prevStatus !== 'analyzing' && phaseTransition === 'none') {
+      // Start fade-out (1000ms)
+      setPhaseTransition('fading-out')
+
+      // After fade-out, switch content and start fade-in (500ms)
+      setTimeout(() => {
+        setDisplayedPhase('analyzing')
+        setPhaseTransition('fading-in')
+
+        // After fade-in, clear transition state
+        setTimeout(() => {
+          setPhaseTransition('none')
+        }, 500)
+      }, 1000)
+    }
+
+    prevStatusRef.current = currentStatus
+  }, [status.status, phaseTransition])
+
   // Rotate AI status messages with variable delay, increment fake progress, track stuck time
   useEffect(() => {
     if (status.status !== 'analyzing') {
       setStuckTime(0)
       setShowEmailPrompt(false)
-      setFakeProgress(70)
+      setFakeProgress(55)
       return
     }
 
@@ -414,7 +489,7 @@ function ProcessingContent() {
 
     let messageTimeout = scheduleNextMessage()
 
-    // Increment fake progress from 70% to 95% during analyzing
+    // Increment fake progress from 55% to 95% during analyzing
     const progressInterval = setInterval(() => {
       setFakeProgress(prev => {
         const increment = Math.random() * 0.2 + 0.3 // 0.3-0.5%
@@ -462,6 +537,45 @@ function ProcessingContent() {
           >
             Try again
           </button>
+        </div>
+      </main>
+    )
+  }
+
+  // Timeout state - analysis taking too long
+  if (isTimedOut) {
+    return (
+      <main className="min-h-screen bg-[var(--background)] flex items-center justify-center p-6">
+        <div className="max-w-md text-center">
+          <div className="w-20 h-20 bg-yellow-500/20 flex items-center justify-center mx-auto mb-6 rounded-full">
+            <span className="text-4xl">⏱️</span>
+          </div>
+          <h1 className="text-section text-2xl text-[var(--foreground)] mb-4">
+            Taking longer than expected
+          </h1>
+          <p className="text-body mb-4">
+            This analysis is taking longer than usual. The site may be large or have complex content.
+          </p>
+          <p className="text-body text-[var(--muted-foreground)] mb-6">
+            Bookmark this page and check back in a few minutes - we&apos;ll keep working in the background.
+          </p>
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={() => {
+                setIsTimedOut(false)
+                processingStartRef.current = Date.now()
+              }}
+              className="bg-[var(--accent)] text-white px-6 py-3 font-semibold hover:opacity-90 transition-opacity"
+            >
+              Keep waiting
+            </button>
+            <button
+              onClick={() => router.push(`/preview/${analysisId}`)}
+              className="text-[var(--accent)] px-6 py-2 font-medium hover:underline"
+            >
+              Check results anyway →
+            </button>
+          </div>
         </div>
       </main>
     )
@@ -572,7 +686,7 @@ function ProcessingContent() {
               )}
             </div>
             <div>
-              <label htmlFor="contact-email" className="block text-sm font-semibold text-white mb-1">Email me my results</label>
+              <label htmlFor="contact-email" className="block text-sm font-semibold text-white mb-1">Get notified about your messaging</label>
               <div className="relative">
                 <input
                   id="contact-email"
@@ -596,7 +710,7 @@ function ProcessingContent() {
                 )}
               </div>
               <p className="text-xs text-white/60 mt-1">
-                {emailSubmitted ? 'We\'ll email you a link to your results' : 'Get a link so you can come back'}
+                {emailSubmitted ? 'Bookmark this page - your results will be ready shortly' : 'Optional: get tips on fixing common messaging issues'}
               </p>
             </div>
           </div>
@@ -646,7 +760,7 @@ function ProcessingContent() {
       ) : (
       /* PROCESSING STATE */
       <div className="max-w-4xl mx-auto w-full">
-        {/* Header - different when enrichment is running after main analysis */}
+        {/* Header - with fade transition between phases */}
         <div className="text-center mb-8">
           {isComplete && enrichmentStatus === 'analyzing' ? (
             <>
@@ -657,24 +771,31 @@ function ProcessingContent() {
                 {enrichmentMessage || 'Analyzing additional context...'}
               </p>
             </>
-          ) : status.status === 'analyzing' ? (
-            <>
-              <h1 className="text-section text-3xl text-[var(--foreground)] mb-2">
-                Analyzing<span className="dot-1">.</span><span className="dot-2">.</span><span className="dot-3">.</span>
-              </h1>
-              <p className="text-body text-[var(--muted-foreground)]">
-                AI is evaluating your messaging against proven frameworks.
-              </p>
-            </>
           ) : (
-            <>
-              <h1 className="text-section text-3xl text-[var(--foreground)] mb-2">
-                Scanning your website
-              </h1>
-              <p className="text-body text-[var(--muted-foreground)]">
-                Takes up to 2 minutes depending on how fast their server responds.
-              </p>
-            </>
+            <div className={
+              phaseTransition === 'fading-out' ? 'phase-out' :
+              phaseTransition === 'fading-in' ? 'phase-in' : ''
+            }>
+              {displayedPhase === 'analyzing' ? (
+                <>
+                  <h1 className="text-section text-3xl text-[var(--foreground)] mb-2">
+                    Analyzing<span className="dot-1">.</span><span className="dot-2">.</span><span className="dot-3">.</span>
+                  </h1>
+                  <p className="text-body text-[var(--muted-foreground)]">
+                    AI is evaluating your messaging against proven frameworks.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h1 className="text-section text-3xl text-[var(--foreground)] mb-2">
+                    Scanning your website
+                  </h1>
+                  <p className="text-body text-[var(--muted-foreground)]">
+                    Takes up to 2 minutes depending on how fast their server responds.
+                  </p>
+                </>
+              )}
+            </div>
           )}
         </div>
 
@@ -723,8 +844,8 @@ function ProcessingContent() {
                 Taking longer than expected?
               </p>
               <p className="text-xs text-yellow-700 mb-3">
-                Enter your email and we&apos;ll send the results when ready.
-                Feel free to close this tab - we&apos;ll keep analyzing.
+                Bookmark this page - analysis continues in the background.
+                You can close this tab and come back later.
               </p>
               <div className="flex items-center justify-center gap-2">
                 <input
@@ -732,14 +853,14 @@ function ProcessingContent() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSubmitEmail()}
-                  placeholder="you@company.com"
+                  placeholder="you@company.com (optional)"
                   className="px-3 py-2 text-sm border border-yellow-300 rounded focus:outline-none focus:border-yellow-500"
                 />
                 <button
                   onClick={handleSubmitEmail}
                   className="px-4 py-2 text-sm bg-yellow-600 text-white rounded hover:bg-yellow-700"
                 >
-                  Notify me
+                  Get tips
                 </button>
               </div>
             </div>
@@ -763,6 +884,76 @@ function ProcessingContent() {
               </div>
               <p className="text-xs text-[var(--muted-foreground)]">
                 AI analysis can take 30-60 seconds for thorough results
+              </p>
+            </div>
+          )}
+
+          {/* Competitor Analysis Progress - show when competitors are being analyzed */}
+          {status.competitorProgress && status.competitorProgress.competitors.length > 0 && (
+            <div className="mb-8 p-5 bg-blue-50 border-2 border-blue-300 rounded-lg">
+              <h3 className="text-lg font-bold text-blue-900 mb-4 flex items-center gap-2">
+                <span className="inline-block w-3 h-3 bg-blue-600 rounded-full animate-pulse"></span>
+                Analyzing competitors ({status.competitorProgress.completed}/{status.competitorProgress.total})
+              </h3>
+              <div className="space-y-3">
+                {status.competitorProgress.competitors.map((comp, idx) => (
+                  <div
+                    key={idx}
+                    className={`p-3 rounded-lg ${
+                      comp.status === 'completed'
+                        ? 'bg-green-100 border-l-4 border-green-600'
+                        : comp.status === 'analyzing'
+                        ? 'bg-blue-100 border-l-4 border-blue-600'
+                        : comp.status === 'error'
+                        ? 'bg-red-100 border-l-4 border-red-400'
+                        : 'bg-gray-100 border-l-4 border-gray-400'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-sm font-mono">{comp.url}</span>
+                      {comp.status === 'completed' && comp.preliminaryScore !== undefined && (
+                        <span
+                          className={`text-xl font-bold ${
+                            comp.preliminaryScore >= 70
+                              ? 'text-green-600'
+                              : comp.preliminaryScore >= 40
+                              ? 'text-yellow-600'
+                              : 'text-red-600'
+                          }`}
+                        >
+                          {comp.preliminaryScore}
+                        </span>
+                      )}
+                      {comp.status === 'analyzing' && (
+                        <span className="text-sm text-blue-700 flex items-center gap-2">
+                          <span className="inline-block w-2 h-2 bg-blue-600 rounded-full animate-pulse"></span>
+                          Analyzing...
+                        </span>
+                      )}
+                      {comp.status === 'error' && (
+                        <span className="text-sm text-red-600">Failed</span>
+                      )}
+                      {comp.status === 'pending' && (
+                        <span className="text-sm text-gray-500">Waiting...</span>
+                      )}
+                    </div>
+                    {comp.earlyFindings && comp.earlyFindings.length > 0 && (
+                      <div className="mt-2 text-xs text-gray-700">
+                        <ul className="space-y-1">
+                          {comp.earlyFindings.slice(0, 2).map((finding, i) => (
+                            <li key={i} className="flex items-start gap-1">
+                              <span className="text-blue-500">→</span>
+                              <span>{finding}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-blue-700 mt-4 pt-3 border-t border-blue-200">
+                Deep analysis includes category scoring, strengths, and weaknesses for each competitor
               </p>
             </div>
           )}
