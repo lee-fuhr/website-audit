@@ -2,6 +2,31 @@
 
 All notable changes to the Website Messaging Audit tool.
 
+## [2.0.1] - 2026-01-05
+
+### What to test
+
+1. **Link icons** - Should scroll to and highlight the exact text on the page (text fragment links)
+2. **Competitor bar** - New editorial design with muted colors, zone labels inside track, individual competitor markers
+3. **"Where they're weak"** - Should no longer show truncated quotes like "...nd what you want"
+
+### Fixes
+
+- **Weakness quote truncation (for real this time)** - Added backend validation to filter quotes starting mid-word ("...nd what"), mid-sentence ellipses ("...y over 60%"), and fragments too short to be meaningful
+- **Link icons now use text fragments** - Links jump to exact text on page using `#:~:text=` (Arc-style deep linking, works in Chrome/Edge/Safari)
+
+### Design
+
+- **Competitor comparison bar redesigned** - Editorial style positioning map:
+  - Muted zone colors (rose-50, amber-50, emerald-50) instead of garish traffic lights
+  - Zone labels inside the track, not orphaned below
+  - Your score: large navy marker with "YOU" tag above
+  - Each competitor: individual gray circles with domain initials (hover for details)
+  - Dashed line shows competitor average
+  - Header shows your score prominently with zone label
+
+---
+
 ## [2.0.0] - 2026-01-05
 
 Major release with 13 fixes, UX improvements, and design system alignment.

@@ -844,6 +844,27 @@ Return ONLY valid JSON (no markdown, no explanation):
       let weaknesses = Array.isArray(parsed.weaknesses) ? parsed.weaknesses.slice(0, 3) : [];
       const overallScore = Math.round(avgCategory * 10);
 
+      // POST-PROCESS: Filter truncated/malformed quotes
+      // Patterns: "...nd what you want" (starts mid-word), "...y over 60%" (partial word after ellipsis)
+      weaknesses = weaknesses.filter((w: string) => {
+        // Check for quotes that start with ellipsis followed by lowercase (mid-word cut)
+        if (/^["']?\.{2,}[a-z]/.test(w)) {
+          console.log(`[Competitor] Filtered truncated weakness (starts mid-word): "${w}"`);
+          return false;
+        }
+        // Check for quotes containing "..." followed by lowercase mid-sentence
+        if (/\.{3}[a-z]{1,3}\s/.test(w)) {
+          console.log(`[Competitor] Filtered truncated weakness (mid-word ellipsis): "${w}"`);
+          return false;
+        }
+        // Check for quotes that are just fragments (very short, no verb structure)
+        if (w.length < 20 && !/\s/.test(w.trim())) {
+          console.log(`[Competitor] Filtered truncated weakness (too short/no spaces): "${w}"`);
+          return false;
+        }
+        return true;
+      });
+
       // POST-PROCESS: Remove contradictory weaknesses
       // If strength mentions a topic, don't allow weakness to claim absence of that topic
       const contradictionPatterns = [
