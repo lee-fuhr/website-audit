@@ -8,6 +8,19 @@ import { Footer } from '@/components/Footer'
 import { Tooltip } from '@/components/Tooltip'
 import { formatCompanyName, safeClipboardWrite, escapeHtml } from '@/lib/utils'
 
+// Helper: Create text fragment URL (Arc-style deep linking to specific text)
+// Format: url#:~:text=encoded%20text
+function createTextFragmentUrl(baseUrl: string, phrase: string): string {
+  if (!baseUrl || !phrase) return baseUrl;
+  // Take first 50 chars of phrase to avoid URL length issues
+  const truncatedPhrase = phrase.length > 50 ? phrase.slice(0, 50) : phrase;
+  // Encode for URL (spaces become %20, etc.)
+  const encodedText = encodeURIComponent(truncatedPhrase);
+  // Add text fragment
+  const separator = baseUrl.includes('#') ? '' : '#';
+  return `${baseUrl}${separator}:~:text=${encodedText}`;
+}
+
 // Types for API response
 interface Finding {
   phrase: string
@@ -281,7 +294,7 @@ function LockedFindings({
               <p className="text-xs text-[var(--muted-foreground)] mt-2">
                 Found: {teaserFinding.location}
                 {teaserFinding.pageUrl && (
-                  <a href={teaserFinding.pageUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
+                  <a href={createTextFragmentUrl(teaserFinding.pageUrl, teaserFinding.phrase)} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
                   </a>
                 )}
@@ -1373,7 +1386,7 @@ export default function PreviewPage() {
                                         <p className="text-xs text-[var(--muted-foreground)] mt-2">
                                           Found: {finding.location}
                                           {finding.pageUrl && (
-                                            <a href={finding.pageUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
+                                            <a href={createTextFragmentUrl(finding.pageUrl, finding.phrase)} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
                                               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
                                             </a>
                                           )}
@@ -1697,7 +1710,7 @@ export default function PreviewPage() {
                               <p className="text-xs text-[var(--muted-foreground)] mt-2">
                                           Found: {finding.location}
                                           {finding.pageUrl && (
-                                            <a href={finding.pageUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
+                                            <a href={createTextFragmentUrl(finding.pageUrl, finding.phrase)} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
                                               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
                                             </a>
                                           )}
@@ -1738,7 +1751,7 @@ export default function PreviewPage() {
                           <p className="text-xs text-[var(--muted-foreground)] mt-2">
                             Found: {preview.teaserFinding.location}
                             {preview.teaserFinding.pageUrl && (
-                              <a href={preview.teaserFinding.pageUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
+                              <a href={createTextFragmentUrl(preview.teaserFinding.pageUrl, preview.teaserFinding.phrase)} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
                               </a>
                             )}
@@ -1806,7 +1819,7 @@ export default function PreviewPage() {
                               <p className="text-xs text-[var(--muted-foreground)] mt-2">
                                           Found: {finding.location}
                                           {finding.pageUrl && (
-                                            <a href={finding.pageUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
+                                            <a href={createTextFragmentUrl(finding.pageUrl, finding.phrase)} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
                                               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
                                             </a>
                                           )}
@@ -1913,7 +1926,7 @@ export default function PreviewPage() {
                               <p className="text-xs text-[var(--muted-foreground)] mt-2">
                                           Found: {finding.location}
                                           {finding.pageUrl && (
-                                            <a href={finding.pageUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
+                                            <a href={createTextFragmentUrl(finding.pageUrl, finding.phrase)} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
                                               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
                                             </a>
                                           )}
@@ -1996,7 +2009,7 @@ export default function PreviewPage() {
                               <p className="text-xs text-[var(--muted-foreground)] mt-2">
                                           Found: {finding.location}
                                           {finding.pageUrl && (
-                                            <a href={finding.pageUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
+                                            <a href={createTextFragmentUrl(finding.pageUrl, finding.phrase)} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
                                               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
                                             </a>
                                           )}
@@ -2100,7 +2113,7 @@ export default function PreviewPage() {
                               <p className="text-xs text-[var(--muted-foreground)] mt-2">
                                           Found: {finding.location}
                                           {finding.pageUrl && (
-                                            <a href={finding.pageUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
+                                            <a href={createTextFragmentUrl(finding.pageUrl, finding.phrase)} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
                                               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
                                             </a>
                                           )}
@@ -2197,7 +2210,7 @@ export default function PreviewPage() {
                               <p className="text-xs text-[var(--muted-foreground)] mt-2">
                                           Found: {finding.location}
                                           {finding.pageUrl && (
-                                            <a href={finding.pageUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
+                                            <a href={createTextFragmentUrl(finding.pageUrl, finding.phrase)} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
                                               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
                                             </a>
                                           )}
@@ -2326,7 +2339,7 @@ export default function PreviewPage() {
                               <p className="text-xs text-[var(--muted-foreground)] mt-2">
                                           Found: {finding.location}
                                           {finding.pageUrl && (
-                                            <a href={finding.pageUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
+                                            <a href={createTextFragmentUrl(finding.pageUrl, finding.phrase)} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center text-[var(--accent)] hover:text-[var(--accent-hover)]" title="View source page">
                                               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
                                             </a>
                                           )}
@@ -2585,83 +2598,150 @@ export default function PreviewPage() {
                   <div className="mb-12">
                     <h3 className="text-subsection mb-6">How you compare</h3>
 
-                    {/* NUMBER LINE COMPARISON GRAPHIC */}
+                    {/* POSITIONING MAP - Editorial style comparison */}
                     {(() => {
                       const yourScore = preview?.commodityScore || 50;
-                      const competitorScores = data.competitorComparison.detailedScores?.map(c => c.score) || [];
-                      const competitorAvg = competitorScores.length > 0
-                        ? Math.round(competitorScores.reduce((a, b) => a + b, 0) / competitorScores.length)
+                      const competitors = data.competitorComparison.detailedScores || [];
+                      const competitorAvg = competitors.length > 0
+                        ? Math.round(competitors.reduce((sum, c) => sum + c.score, 0) / competitors.length)
                         : null;
 
+                      // Helper to get initials from URL
+                      const getInitials = (url: string) => {
+                        const domain = url.replace(/^https?:\/\//, '').replace(/^www\./, '').split('.')[0];
+                        return domain.slice(0, 2).toUpperCase();
+                      };
+
+                      // Zone styling
+                      const getZoneName = (score: number) => score < 40 ? 'Commodity' : score < 70 ? 'Average' : 'Differentiated';
+                      const getZoneColor = (score: number) => score < 40 ? '#be123c' : score < 70 ? '#b45309' : '#059669';
+
                       return (
-                        <div className="mb-8 p-6 bg-white border border-gray-200 rounded-lg">
-                          {/* Scale labels */}
-                          <div className="flex justify-between text-xs text-gray-500 mb-2">
-                            <span>0</span>
-                            <span>25</span>
-                            <span>50</span>
-                            <span>75</span>
-                            <span>100</span>
+                        <div className="mb-8">
+                          {/* Header with your score callout */}
+                          <div className="flex items-end justify-between mb-6">
+                            <div>
+                              <p className="font-mono text-xs tracking-widest text-gray-400 uppercase mb-1">Your position</p>
+                              <div className="flex items-baseline gap-3">
+                                <span className="text-5xl font-black tracking-tight" style={{ fontFamily: 'var(--font-display)', color: '#1e3a5f' }}>
+                                  {yourScore}
+                                </span>
+                                <span className="text-lg text-gray-400">/100</span>
+                              </div>
+                              <p className="text-sm mt-1" style={{ fontFamily: 'var(--font-body)', color: getZoneColor(yourScore) }}>
+                                {getZoneName(yourScore)} zone
+                              </p>
+                            </div>
+                            {competitorAvg !== null && (
+                              <div className="text-right">
+                                <p className="font-mono text-xs tracking-widest text-gray-400 uppercase mb-1">Competitor avg</p>
+                                <span className="text-3xl font-bold text-gray-400" style={{ fontFamily: 'var(--font-display)' }}>
+                                  {competitorAvg}
+                                </span>
+                              </div>
+                            )}
                           </div>
 
-                          {/* Gradient bar with markers */}
-                          <div className="relative h-12 rounded-lg overflow-hidden" style={{
-                            background: 'linear-gradient(to right, #ef4444 0%, #ef4444 40%, #eab308 40%, #eab308 70%, #22c55e 70%, #22c55e 100%)'
-                          }}>
-                            {/* Grid lines */}
-                            <div className="absolute inset-0 flex">
-                              {[0, 25, 50, 75].map(pos => (
-                                <div key={pos} className="flex-1 border-r border-white/30" />
-                              ))}
-                              <div className="flex-1" />
+                          {/* The positioning track */}
+                          <div className="relative">
+                            {/* Zone backgrounds with integrated labels */}
+                            <div className="flex h-20 rounded-sm overflow-hidden border border-gray-200">
+                              {/* Commodity zone: 0-40 */}
+                              <div className="relative bg-rose-50 border-r border-rose-200" style={{ width: '40%' }}>
+                                <span className="absolute top-2 left-3 font-mono text-[10px] tracking-widest uppercase text-rose-400">
+                                  Commodity
+                                </span>
+                                <span className="absolute bottom-2 left-3 font-mono text-[10px] text-gray-300">0</span>
+                              </div>
+                              {/* Average zone: 40-70 */}
+                              <div className="relative bg-amber-50/50 border-r border-amber-200" style={{ width: '30%' }}>
+                                <span className="absolute top-2 left-3 font-mono text-[10px] tracking-widest uppercase text-amber-400">
+                                  Average
+                                </span>
+                                <span className="absolute bottom-2 left-3 font-mono text-[10px] text-gray-300">40</span>
+                              </div>
+                              {/* Differentiated zone: 70-100 */}
+                              <div className="relative bg-emerald-50" style={{ width: '30%' }}>
+                                <span className="absolute top-2 left-3 font-mono text-[10px] tracking-widest uppercase text-emerald-400">
+                                  Differentiated
+                                </span>
+                                <span className="absolute bottom-2 left-3 font-mono text-[10px] text-gray-300">70</span>
+                                <span className="absolute bottom-2 right-3 font-mono text-[10px] text-gray-300">100</span>
+                              </div>
                             </div>
 
-                            {/* Competitor average marker */}
+                            {/* Individual competitor markers */}
+                            {competitors.map((competitor, index) => (
+                              <div
+                                key={competitor.url}
+                                className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 group"
+                                style={{ left: `${competitor.score}%`, zIndex: 10 + index }}
+                              >
+                                <div className="w-8 h-8 rounded-full bg-gray-300 border-2 border-white shadow-sm flex items-center justify-center cursor-default transition-transform hover:scale-110">
+                                  <span className="font-mono text-[10px] font-medium text-gray-600">
+                                    {getInitials(competitor.url)}
+                                  </span>
+                                </div>
+                                {/* Tooltip on hover */}
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+                                  {competitor.url.replace(/^https?:\/\//, '').replace(/^www\./, '')} · {competitor.score}
+                                </div>
+                              </div>
+                            ))}
+
+                            {/* Average dashed line */}
                             {competitorAvg !== null && (
                               <div
-                                className="absolute top-0 bottom-0 flex flex-col items-center"
-                                style={{ left: `${competitorAvg}%`, transform: 'translateX(-50%)' }}
+                                className="absolute top-0 bottom-0 w-px"
+                                style={{
+                                  left: `${competitorAvg}%`,
+                                  background: 'repeating-linear-gradient(to bottom, #9ca3af 0, #9ca3af 4px, transparent 4px, transparent 8px)',
+                                  zIndex: 5
+                                }}
                               >
-                                <div className="h-full w-1 bg-gray-800/70" />
+                                <span className="absolute top-full mt-1 left-1/2 -translate-x-1/2 font-mono text-[9px] text-gray-400 whitespace-nowrap">
+                                  avg
+                                </span>
                               </div>
                             )}
 
-                            {/* Your score marker */}
+                            {/* YOUR score marker - prominent */}
                             <div
-                              className="absolute top-0 bottom-0 flex flex-col items-center"
-                              style={{ left: `${yourScore}%`, transform: 'translateX(-50%)' }}
+                              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2"
+                              style={{ left: `${yourScore}%`, zIndex: 50 }}
                             >
-                              <div className="h-full w-1.5 bg-blue-600 shadow-lg" style={{ boxShadow: '0 0 8px rgba(37, 99, 235, 0.8)' }} />
-                            </div>
-                          </div>
-
-                          {/* Legend below the bar */}
-                          <div className="flex justify-center gap-8 mt-4 text-sm">
-                            <div className="flex items-center gap-2">
-                              <div className="w-4 h-4 bg-blue-600 rounded shadow" style={{ boxShadow: '0 0 4px rgba(37, 99, 235, 0.6)' }} />
-                              <span className="font-semibold">Your site: <span className={
-                                yourScore >= 70 ? 'text-green-600' :
-                                yourScore >= 40 ? 'text-yellow-600' :
-                                'text-red-600'
-                              }>{yourScore}</span></span>
-                            </div>
-                            {competitorAvg !== null && (
-                              <div className="flex items-center gap-2">
-                                <div className="w-4 h-4 bg-gray-700 rounded" />
-                                <span className="text-gray-600">Competitors avg: <span className={
-                                  competitorAvg >= 70 ? 'text-green-600' :
-                                  competitorAvg >= 40 ? 'text-yellow-600' :
-                                  'text-red-600'
-                                }>{competitorAvg}</span></span>
+                              {/* Connecting line to label */}
+                              <div className="absolute left-1/2 -translate-x-1/2 w-px bg-[#1e3a5f]" style={{ bottom: '100%', height: '20px' }} />
+                              {/* "YOU" label above */}
+                              <div
+                                className="absolute left-1/2 -translate-x-1/2 font-mono text-[10px] tracking-widest font-bold px-2 py-0.5 rounded-sm"
+                                style={{ bottom: 'calc(100% + 24px)', backgroundColor: '#1e3a5f', color: 'white' }}
+                              >
+                                YOU
                               </div>
-                            )}
+                              {/* Main marker */}
+                              <div className="w-11 h-11 rounded-full border-4 border-white shadow-lg flex items-center justify-center" style={{ backgroundColor: '#1e3a5f' }}>
+                                <span className="text-base font-bold text-white" style={{ fontFamily: 'var(--font-display)' }}>
+                                  {yourScore}
+                                </span>
+                              </div>
+                            </div>
                           </div>
 
-                          {/* Zone labels */}
-                          <div className="flex mt-3 text-xs">
-                            <div className="w-[40%] text-center text-red-600 font-medium">Commodity zone</div>
-                            <div className="w-[30%] text-center text-yellow-600 font-medium">Average</div>
-                            <div className="w-[30%] text-center text-green-600 font-medium">Differentiated</div>
+                          {/* Legend */}
+                          <div className="flex items-center gap-6 mt-8 pt-4 border-t border-gray-100">
+                            <div className="flex items-center gap-2">
+                              <div className="w-4 h-4 rounded-full" style={{ backgroundColor: '#1e3a5f' }} />
+                              <span className="font-mono text-xs text-gray-500">Your site</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="w-4 h-4 rounded-full bg-gray-300 border border-gray-200" />
+                              <span className="font-mono text-xs text-gray-500">Competitors ({competitors.length})</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="w-4 border-t-2 border-dashed border-gray-400" />
+                              <span className="font-mono text-xs text-gray-500">Avg: {competitorAvg}</span>
+                            </div>
                           </div>
                         </div>
                       );
@@ -3097,7 +3177,7 @@ export default function PreviewPage() {
                               {finding.location}
                               {finding.pageUrl && (
                                 <a
-                                  href={finding.pageUrl}
+                                  href={createTextFragmentUrl(finding.pageUrl, finding.phrase)}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   onClick={(e) => e.stopPropagation()}
