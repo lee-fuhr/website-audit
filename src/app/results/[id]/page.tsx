@@ -1766,6 +1766,44 @@ export default function AuditPage() {
           </>
         )}
 
+        {/* Retainer upsell */}
+        {(showAllViews || currentView === 'overview') && isPaid && (
+          <section className="bg-[var(--accent)] py-16 px-4 md:px-8">
+            <div className="container max-w-4xl">
+              <div className="grid md:grid-cols-2 gap-12 items-center">
+                <div>
+                  <p className="text-[var(--accent-foreground)] opacity-60 text-xs font-bold tracking-wider mb-3">NEED THIS FIXED, NOT JUST FLAGGED?</p>
+                  <h2 className="text-[var(--accent-foreground)] text-3xl font-bold mb-4">
+                    I fix these problems for manufacturers every month.
+                  </h2>
+                  <p className="text-[var(--accent-foreground)] opacity-80 mb-6">
+                    Website, proposals, case studies — the full messaging stack. Starts at $750/month. Most clients see ROI in month one.
+                  </p>
+                  <a
+                    href="mailto:hi@leefuhr.com?subject=Interested in working together — saw Website Audit"
+                    className="inline-block bg-[var(--accent-foreground)] text-[var(--accent)] px-6 py-3 font-semibold hover:opacity-90 transition-opacity"
+                  >
+                    Email Lee →
+                  </a>
+                </div>
+                <div className="border-l border-[var(--accent-foreground)]/20 pl-12">
+                  <p className="text-[var(--accent-foreground)] opacity-60 text-sm mb-6">
+                    27 years. 50+ B2B manufacturers. I&apos;ve seen every version of &quot;we sound like everyone else&quot; — and I know exactly how to fix it.
+                  </p>
+                  <div className="space-y-3">
+                    {['Positioning that makes price irrelevant', 'Website copy that converts browsers to callers', 'Proposals that win before the meeting'].map((item, i) => (
+                      <div key={i} className="flex items-center gap-3">
+                        <span className="text-[var(--accent-foreground)] opacity-60">✓</span>
+                        <span className="text-[var(--accent-foreground)] opacity-80 text-sm">{item}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* Footer - Full on overview or print, minimal on other views */}
         {(showAllViews || currentView === 'overview') ? (
           <footer className="bg-black text-white py-12 md:py-16">
