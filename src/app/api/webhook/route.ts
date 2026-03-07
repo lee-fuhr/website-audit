@@ -94,6 +94,14 @@ export async function POST(request: NextRequest) {
         });
 
         console.log(`Receipt sent to ${customerEmail} for ${tool}`);
+
+        // Notify Lee
+        await getResend().emails.send({
+          from: 'LFI Tools <tools@leefuhr.com>',
+          to: ['hi@leefuhr.com'],
+          subject: `New paid lead: ${customerEmail} — ${tool} ($${amountPaid})`,
+          html: `<p style="font-family:sans-serif"><strong>${customerEmail}</strong> just paid $${amountPaid} for ${tool}.</p><p style="font-family:sans-serif"><a href="${resultsUrl}">View their results →</a></p>`,
+        });
       } catch (emailError) {
         console.error('Failed to send receipt email:', emailError);
       }
