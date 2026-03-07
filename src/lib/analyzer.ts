@@ -6,19 +6,18 @@
  */
 
 import { CrawledPage, CrawlResult } from './crawler';
+import Anthropic from '@anthropic-ai/sdk';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _anthropic: any = null;
 
 export async function getAnthropicClient() {
   if (!_anthropic) {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY_BACKUP;
     if (!apiKey) {
       throw new Error('ANTHROPIC_API_KEY is not set');
     }
     console.log(`[AI] Initializing Anthropic client - key present: ${!!apiKey}, length: ${apiKey?.length || 0}`);
-    // Regular dynamic import - force-dynamic prevents build-time evaluation
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
     _anthropic = new Anthropic({ apiKey });
   }
   return _anthropic;

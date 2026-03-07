@@ -27,8 +27,8 @@ export async function GET(request: NextRequest) {
   if (apiKey) {
     try {
       // Regular dynamic import - force-dynamic prevents build-time evaluation
-      const { default: Anthropic } = await import('@anthropic-ai/sdk');
-      const anthropic = new Anthropic({ apiKey });
+      const { createClaudeClient } = await import('@shared/lib/claude-client');
+      const anthropic = createClaudeClient();
 
       const startTime = Date.now();
       const response = await anthropic.messages.create({
