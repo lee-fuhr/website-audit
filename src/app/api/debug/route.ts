@@ -26,13 +26,12 @@ export async function GET(request: NextRequest) {
   // Try to make a simple AI call
   if (apiKey) {
     try {
-      // Regular dynamic import - force-dynamic prevents build-time evaluation
-      const { createClaudeClient } = await import('@shared/lib/claude-client');
-      const anthropic = createClaudeClient();
+      const { default: Anthropic } = await import('@anthropic-ai/sdk');
+      const anthropic = new Anthropic({ apiKey });
 
       const startTime = Date.now();
       const response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 100,
         messages: [{ role: 'user', content: 'Say "AI is working" in 5 words or less.' }]
       });
