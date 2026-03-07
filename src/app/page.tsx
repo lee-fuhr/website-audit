@@ -609,18 +609,26 @@ export default function HomePage() {
 
           {/* More tools */}
           <p className="text-xs font-bold tracking-wider text-[var(--background)]/60 mb-6 text-center">MORE TOOLS FOR MANUFACTURERS</p>
-          <div className="grid md:grid-cols-3 gap-6 mb-12">
-            <a href="https://proposal-analyzer.vercel.app" className="p-6 border border-[var(--background)]/20 hover:border-[var(--background)]/50 transition-colors">
-              <p className="text-lg font-semibold text-white mb-2">Proposal analyzer</p>
-              <p className="text-sm text-[var(--background)]/70">Stop losing winnable bids. Find where your proposal sounds like everyone else.</p>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-12">
+            <a href="https://areyougeneric.com" className="p-5 border border-[var(--background)]/20 hover:border-[var(--background)]/50 transition-colors">
+              <p className="text-xs font-bold tracking-wider text-[var(--background)]/50 mb-1">FREE</p>
+              <p className="text-base font-semibold text-white mb-1">Commodity test</p>
+              <p className="text-xs text-[var(--background)]/70">Score your website messaging in 2 minutes.</p>
             </a>
-            <a href="https://case-study-extractor.vercel.app" className="p-6 border border-[var(--background)]/20 hover:border-[var(--background)]/50 transition-colors">
-              <p className="text-lg font-semibold text-white mb-2">Case study extractor</p>
-              <p className="text-sm text-[var(--background)]/70">Turn project photos and invoices into sales-ready case studies in 5 minutes.</p>
+            <a href="https://proposal-analyzer.vercel.app" className="p-5 border border-[var(--background)]/20 hover:border-[var(--background)]/50 transition-colors">
+              <p className="text-xs font-bold tracking-wider text-[var(--background)]/50 mb-1">$97</p>
+              <p className="text-base font-semibold text-white mb-1">Proposal analyzer</p>
+              <p className="text-xs text-[var(--background)]/70">Stop losing winnable bids to generic proposal language.</p>
             </a>
-            <a href="https://risk-translator.vercel.app" className="p-6 border border-[var(--background)]/20 hover:border-[var(--background)]/50 transition-colors">
-              <p className="text-lg font-semibold text-white mb-2">Risk translator</p>
-              <p className="text-sm text-[var(--background)]/70">Translate your specs into risk language that gets purchasing to approve the budget.</p>
+            <a href="https://case-study-extractor.vercel.app" className="p-5 border border-[var(--background)]/20 hover:border-[var(--background)]/50 transition-colors">
+              <p className="text-xs font-bold tracking-wider text-[var(--background)]/50 mb-1">$147</p>
+              <p className="text-base font-semibold text-white mb-1">Case study extractor</p>
+              <p className="text-xs text-[var(--background)]/70">Turn project photos and invoices into sales-ready case studies.</p>
+            </a>
+            <a href="https://risk-translator.vercel.app" className="p-5 border border-[var(--background)]/20 hover:border-[var(--background)]/50 transition-colors">
+              <p className="text-xs font-bold tracking-wider text-[var(--background)]/50 mb-1">$97</p>
+              <p className="text-base font-semibold text-white mb-1">Risk translator</p>
+              <p className="text-xs text-[var(--background)]/70">Translate your specs into cost-of-failure language.</p>
             </a>
           </div>
 
