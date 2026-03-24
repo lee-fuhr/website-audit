@@ -3,6 +3,7 @@
  */
 
 import { CompetitorDeepAnalysis } from './enrichment';
+import { logger } from '@shared/lib/logger';
 
 // ---------------------------------------------------------------------------
 // AI response parser
@@ -62,15 +63,15 @@ export function parseCompetitorAnalysisResponse(
   // POST-PROCESS: Filter truncated/malformed quotes
   weaknesses = weaknesses.filter((w: string) => {
     if (/^["']?\.{2,}[a-z]/.test(w)) {
-      console.warn('[analyze] Filtered truncated weakness (starts mid-word)', { weakness: w, url, timestamp: new Date().toISOString() });
+      logger.warn('Filtered truncated weakness (starts mid-word)', { tool: 'website-audit', fn: 'parseCompetitorAnalysisResponse', weakness: w, url });
       return false;
     }
     if (/\.{3}[a-z]{1,3}\s/.test(w)) {
-      console.warn('[analyze] Filtered truncated weakness (mid-word ellipsis)', { weakness: w, url, timestamp: new Date().toISOString() });
+      logger.warn('Filtered truncated weakness (mid-word ellipsis)', { tool: 'website-audit', fn: 'parseCompetitorAnalysisResponse', weakness: w, url });
       return false;
     }
     if (w.length < 20 && !/\s/.test(w.trim())) {
-      console.warn('[analyze] Filtered truncated weakness (too short/no spaces)', { weakness: w, url, timestamp: new Date().toISOString() });
+      logger.warn('Filtered truncated weakness (too short/no spaces)', { tool: 'website-audit', fn: 'parseCompetitorAnalysisResponse', weakness: w, url });
       return false;
     }
     return true;
@@ -91,7 +92,7 @@ export function parseCompetitorAnalysisResponse(
       const hasStrengthKeyword = pattern.strengthKeywords.some(k => strengthsLower.includes(k));
       const hasWeaknessKeyword = pattern.weaknessKeywords.some(k => wLower.includes(k));
       if (hasStrengthKeyword && hasWeaknessKeyword) {
-        console.warn('[analyze] Filtered contradictory weakness', { weakness: w, conflictsWith: pattern.strengthKeywords[0], url, timestamp: new Date().toISOString() });
+        logger.warn('Filtered contradictory weakness', { tool: 'website-audit', fn: 'parseCompetitorAnalysisResponse', weakness: w, conflictsWith: pattern.strengthKeywords[0], url });
         return false;
       }
     }
@@ -120,7 +121,7 @@ export function parseCompetitorAnalysisResponse(
  * Heuristic-based competitor analysis used when the AI call fails.
  */
 export function heuristicCompetitorAnalysis(content: string, url: string): CompetitorDeepAnalysis {
-  console.warn('[analyze] Using heuristic fallback for competitor', { url, timestamp: new Date().toISOString() });
+  logger.warn('Using heuristic fallback for competitor', { tool: 'website-audit', fn: 'heuristicCompetitorAnalysis', url });
 
   const commodityPhrases = [
     'leading', 'innovative', 'solutions', 'best-in-class', 'world-class',

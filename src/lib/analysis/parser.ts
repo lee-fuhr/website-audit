@@ -1,6 +1,7 @@
 import { AnalysisResult, Finding } from '../analyzer'
 import { CrawledPage } from '../crawler'
 import { generateFallbackAnalysis } from './fallback'
+import { logger } from '@shared/lib/logger'
 
 /**
  * Parse Claude's response into structured data.
@@ -22,13 +23,12 @@ export function parseAnalysisResponse(
     // Extract JSON from response
     const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {
-      console.error('[Parser] No JSON found in AI response')
-      console.error('[Parser] Response preview:', response.substring(0, 300))
+      logger.error('No JSON found in AI response', { tool: 'website-audit', fn: 'parseAnalysisResponse', preview: response.substring(0, 300) })
       throw new Error('No JSON found in response')
     }
 
     const parsed = JSON.parse(jsonMatch[0])
-    console.log('[Parser] Successfully parsed AI JSON response')
+    logger.info('Successfully parsed AI JSON response', { tool: 'website-audit', fn: 'parseAnalysisResponse' })
 
     // FIRST: Collect all findings from pageAnalysis (old structure / backwards compat)
     const allFindingsFromPages: Finding[] = []
@@ -50,7 +50,7 @@ export function parseAnalysisResponse(
         }
       }
     }
-    console.log(`[Parser] Found ${allFindingsFromPages.length} findings from pageAnalysis`)
+    logger.info(`Found ${allFindingsFromPages.length} findings from pageAnalysis`, { tool: 'website-audit', fn: 'parseAnalysisResponse' })
 
     // SECOND: Parse topIssues and merge findings
     const topIssues = (parsed.topIssues || []).slice(0, 10).map((issue: Record<string, unknown>) => {
@@ -69,7 +69,7 @@ export function parseAnalysisResponse(
             // Starts with lowercase - likely truncated. Remove leading partial word if present
             const cleanedStart = phrase.replace(/^\.{2,}\s*\w+\s+/, '').replace(/^\w+\s+/, '')
             if (cleanedStart.length > 10) {
-              console.log(`[Parser] Cleaned truncated phrase start: "${phrase.substring(0, 30)}..." → "${cleanedStart.substring(0, 30)}..."`)
+              logger.info(`Cleaned truncated phrase start`, { tool: 'website-audit', fn: 'parseAnalysisResponse', original: phrase.substring(0, 30), cleaned: cleanedStart.substring(0, 30) })
               phrase = cleanedStart
             }
           }
@@ -94,7 +94,7 @@ export function parseAnalysisResponse(
             } else {
               rewrite = truncated.trim()
             }
-            console.log(`[Parser] Truncated overly-long rewrite: ${f.rewrite?.length} → ${rewrite.length} chars`)
+            logger.info(`Truncated overly-long rewrite: ${f.rewrite?.length} -> ${rewrite.length} chars`, { tool: 'website-audit', fn: 'parseAnalysisResponse' })
           }
 
           return {
@@ -141,7 +141,7 @@ export function parseAnalysisResponse(
         }
 
         if (findings.length === 0 && allFindingsFromPages.length > 0) {
-          console.log(`[Parser] No matching findings for issue "${issue.title}" - leaving empty to prevent mismatches`)
+          logger.info(`No matching findings for issue "${issue.title}" - leaving empty to prevent mismatches`, { tool: 'website-audit', fn: 'parseAnalysisResponse' })
         }
       }
 
@@ -155,7 +155,7 @@ export function parseAnalysisResponse(
 
     // Count total findings
     const totalFindings = topIssues.reduce((sum: number, i: { findings: Finding[] }) => sum + i.findings.length, 0)
-    console.log(`[Parser] Total findings distributed across ${topIssues.length} issues: ${totalFindings}`)
+    logger.info(`Total findings distributed across ${topIssues.length} issues: ${totalFindings}`, { tool: 'website-audit', fn: 'parseAnalysisResponse' })
 
     // Build pageAnalysis for backwards compatibility
     const pageMap = new Map<string, Finding[]>()
@@ -206,7 +206,7 @@ export function parseAnalysisResponse(
       })).filter((c: { domain: string }) => c.domain),
     }
   } catch (error) {
-    console.error('Error parsing AI response:', error)
+    logger.error('Error parsing AI response', { tool: 'website-audit', fn: 'parseAnalysisResponse', err: String(error) })
     return generateFallbackAnalysis(pages, '')
   }
 }

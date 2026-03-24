@@ -1,7 +1,10 @@
 'use client'
 
 import { ViewNavBar } from '@/components/ViewNavBar'
+import { PRICING } from '@shared/config/pricing'
 import { AnalysisResponse, PreviewData, ViewType } from './types'
+
+const AUDIT_PRICE = `$${PRICING['website-audit'].base}`
 import { SwipeFile } from './resources/SwipeFile'
 import { CopywriterBrief } from './resources/CopywriterBrief'
 import { TrustChecklist } from './resources/TrustChecklist'
@@ -103,7 +106,7 @@ export function ResourcesView({
                   disabled={isCheckingOut}
                   className="bg-white text-[var(--accent)] px-8 py-3 text-lg font-bold hover:bg-white/90 transition-all shadow-lg disabled:opacity-50"
                 >
-                  {isCheckingOut ? 'Starting checkout...' : 'Unlock resources — $400'}
+                  {isCheckingOut ? 'Starting checkout...' : `Unlock resources — ${AUDIT_PRICE}`}
                 </button>
               </div>
             </>

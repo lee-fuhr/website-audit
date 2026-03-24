@@ -5,6 +5,7 @@
  */
 
 import { isPrivateUrl } from './url-utils';
+import { logger } from '@shared/lib/logger';
 
 /**
  * Render service configuration
@@ -31,7 +32,7 @@ export interface RenderResult {
  */
 export async function fetchWithRenderService(url: string): Promise<RenderResult | null> {
   if (!RENDER_SERVICE_URL || !RENDER_SERVICE_API_KEY) {
-    console.log('[Crawler] Render service not configured, skipping JS rendering');
+    logger.info('Render service not configured, skipping JS rendering', { tool: 'website-audit', fn: 'fetchWithRenderService' });
     return null;
   }
 
@@ -46,13 +47,13 @@ export async function fetchWithRenderService(url: string): Promise<RenderResult 
     });
 
     if (!response.ok) {
-      console.log(`[Crawler] Render service error: ${response.status}`);
+      logger.error(`Render service error: ${response.status}`, { tool: 'website-audit', fn: 'fetchWithRenderService' });
       return null;
     }
 
     const result = await response.json();
     if (result.success) {
-      console.log(`[Crawler] Rendered ${url} via headless browser in ${result.elapsed}ms`);
+      logger.info(`Rendered ${url} via headless browser in ${result.elapsed}ms`, { tool: 'website-audit', fn: 'fetchWithRenderService' });
       return {
         html: result.html,
         metadata: result.metadata,
@@ -60,7 +61,7 @@ export async function fetchWithRenderService(url: string): Promise<RenderResult 
     }
     return null;
   } catch (err) {
-    console.error('[Crawler] Render service fetch failed:', err);
+    logger.error('Render service fetch failed', { tool: 'website-audit', fn: 'fetchWithRenderService', err: String(err) });
     return null;
   }
 }
@@ -71,7 +72,7 @@ export async function fetchWithRenderService(url: string): Promise<RenderResult 
 export async function fetchPage(url: string, timeout = 5000): Promise<string | null> {
   // SSRF protection: block private/internal URLs
   if (isPrivateUrl(url)) {
-    console.warn(`[Crawler] Blocked private URL: ${url}`);
+    logger.warn(`Blocked private URL: ${url}`, { tool: 'website-audit', fn: 'fetchPage' });
     return null;
   }
 

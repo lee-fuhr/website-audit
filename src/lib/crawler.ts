@@ -18,6 +18,7 @@ import {
   isErrorPage,
 } from './crawler/html-extractors';
 import { fetchPage, fetchWithRenderService } from './crawler/fetch';
+import { logger } from '@shared/lib/logger';
 
 export interface CrawledPage {
   url: string;
@@ -55,7 +56,7 @@ export async function crawlWebsite(
 ): Promise<CrawlResult> {
   // SSRF protection: reject private URLs at entry point
   if (isPrivateUrl(startUrl)) {
-    console.error(`[Crawler] Rejected private URL: ${startUrl}`);
+    logger.error(`Rejected private URL: ${startUrl}`, { tool: 'website-audit', fn: 'crawlWebsite' });
     return {
       pages: [],
       errors: ['Cannot crawl private/internal URLs'],
@@ -128,25 +129,25 @@ export async function crawlWebsite(
     if (result.pages.length === 0) {
       const spaCheck = detectSPAIndicators(html);
       if (spaCheck.isSPA) {
-        console.log(`[Crawler] SPA detected for ${url}:`, spaCheck.indicators);
+        logger.info(`SPA detected for ${url}`, { tool: 'website-audit', fn: 'crawlWebsite', indicators: spaCheck.indicators });
 
         // Try render service for JavaScript-heavy sites
         const rendered = await fetchWithRenderService(url);
         if (rendered) {
-          console.log(`[Crawler] Using rendered HTML from headless browser`);
+          logger.info('Using rendered HTML from headless browser', { tool: 'website-audit', fn: 'crawlWebsite' });
           html = rendered.html;
           renderMetadata = rendered.metadata;
 
           // Extract company name from render metadata
           result.companyName = extractCompanyName(renderMetadata);
           if (result.companyName) {
-            console.log(`[Crawler] Extracted company name: ${result.companyName}`);
+            logger.info(`Extracted company name: ${result.companyName}`, { tool: 'website-audit', fn: 'crawlWebsite' });
           }
 
           // Re-check SPA indicators on rendered content
           const recheck = detectSPAIndicators(html);
           if (!recheck.isSPA) {
-            console.log(`[Crawler] Render service resolved SPA issues`);
+            logger.info('Render service resolved SPA issues', { tool: 'website-audit', fn: 'crawlWebsite' });
           } else {
             result.spaWarning = {
               isSPA: true,
@@ -171,7 +172,7 @@ export async function crawlWebsite(
         };
         result.companyName = extractCompanyName(staticMeta);
         if (result.companyName) {
-          console.log(`[Crawler] Extracted company name: ${result.companyName}`);
+          logger.info(`Extracted company name: ${result.companyName}`, { tool: 'website-audit', fn: 'crawlWebsite' });
         }
       }
     }
@@ -182,7 +183,7 @@ export async function crawlWebsite(
 
     // Skip error pages - they pollute the analysis with irrelevant content
     if (isErrorPage(content, title)) {
-      console.log(`[Crawler] Skipping error page: ${url}`);
+      logger.info(`Skipping error page: ${url}`, { tool: 'website-audit', fn: 'crawlWebsite' });
       continue;
     }
 

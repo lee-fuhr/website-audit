@@ -2,7 +2,10 @@
 
 import { ViewNavBar } from '@/components/ViewNavBar'
 import { getScoreBgClass, getScoreColorClass, getScoreLabel } from './preview-utils'
+import { PRICING } from '@shared/config/pricing'
 import { AnalysisResponse, PreviewData, ViewType } from './types'
+
+const AUDIT_PRICE = `$${PRICING['website-audit'].base}`
 import { PositioningMap } from './competitors/PositioningMap'
 import { ComparisonTable } from './competitors/ComparisonTable'
 import { CompetitorInsightCard } from './competitors/CompetitorInsightCard'
@@ -267,7 +270,7 @@ export function CompetitorsView({
                         >
                           {isCheckingOut
                             ? 'Starting checkout...'
-                            : 'Unlock competitive analysis — $400'}
+                            : `Unlock competitive analysis — ${AUDIT_PRICE}`}
                         </button>
                         <p className="text-xs text-[var(--muted-foreground)] mt-3">
                           Included with your full audit

@@ -2,7 +2,10 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { PRICING } from '@shared/config/pricing'
 import { Footer } from '@/components/Footer'
+
+const AUDIT_PRICE = `$${PRICING['website-audit'].base}`
 import { ScoreModal } from '@/components/ScoreModal'
 import { OverviewView } from './components/OverviewView'
 import { MessageView } from '@/components/MessageView'
@@ -160,7 +163,7 @@ export default function SamplePage() {
       {/* Sample banner */}
       <div className="bg-[var(--accent)] text-center py-3 px-4 fixed top-0 left-0 right-0 z-50 print:hidden">
         <p className="text-white text-sm font-semibold">
-          SAMPLE REPORT - This is what the full $400 analysis looks like ·{' '}
+          SAMPLE REPORT - This is what the full {AUDIT_PRICE} analysis looks like ·{' '}
           <Link href="/" className="underline hover:no-underline">Analyze your site →</Link>
         </p>
       </div>

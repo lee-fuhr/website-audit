@@ -2,7 +2,10 @@
 
 import { safeClipboardWrite } from '@/lib/utils'
 import { createTextFragmentUrl } from './preview-utils'
+import { PRICING } from '@shared/config/pricing'
 import { PreviewData } from './types'
+
+const AUDIT_PRICE = `$${PRICING['website-audit'].base}`
 
 interface LockedFindingsProps {
   onUnlock: () => void
@@ -112,7 +115,7 @@ export function LockedFindings({
               onClick={onUnlock}
               className="bg-[var(--accent)] text-white px-5 py-2.5 text-sm font-semibold hover:opacity-90 transition-opacity"
             >
-              Unlock full audit — $400
+              Unlock full audit — {AUDIT_PRICE}
             </button>
           </div>
         </div>

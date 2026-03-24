@@ -62,3 +62,8 @@ export const PRICING: Record<string, ToolPricing> = {
 }
 
 export type ToolId = keyof typeof PRICING
+
+/** Format a tool's base price for display, e.g. "$400" */
+export function displayPrice(tool: string): string {
+  return `$${PRICING[tool]?.base || 0}`
+}

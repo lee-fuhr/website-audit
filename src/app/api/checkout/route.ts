@@ -10,6 +10,7 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { PRICING } from '@shared/config/pricing';
+import { logger } from '@shared/lib/logger';
 
 // Lazy initialization to avoid build-time errors
 const getStripe = () => new Stripe(process.env.STRIPE_SECRET_KEY!);
@@ -77,7 +78,7 @@ export async function POST(request: NextRequest) {
       sessionId: session.id,
     });
   } catch (error) {
-    console.error('Checkout error:', error);
+    logger.error('Checkout error', { tool: 'website-audit', fn: 'POST /api/checkout', err: error instanceof Error ? error.message : String(error) });
     return NextResponse.json(
       { success: false, error: 'Failed to create checkout session' },
       { status: 500 }

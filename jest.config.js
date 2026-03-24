@@ -4,6 +4,7 @@ const config = {
   testEnvironment: 'node',
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
+    '^@shared/(.*)$': '<rootDir>/_shared/$1',
   },
   transform: {
     '^.+\\.tsx?$': ['ts-jest', {

@@ -12,6 +12,7 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { kv } from '@vercel/kv';
+import { logger } from '@shared/lib/logger';
 
 let _stripe: Stripe | null = null;
 function getStripe() {
@@ -78,14 +79,14 @@ export async function POST(request: NextRequest) {
           );
         }
       } catch (kvError) {
-        console.error('[verify-payment] KV update failed:', kvError);
+        logger.error('KV update failed', { tool: 'website-audit', fn: 'POST /api/verify-payment', err: String(kvError) });
         // Still return paid=true since Stripe confirmed payment
       }
     }
 
     return NextResponse.json({ success: true, paid: true });
   } catch (error) {
-    console.error('[verify-payment] Error:', error);
+    logger.error('Verification failed', { tool: 'website-audit', fn: 'POST /api/verify-payment', err: error instanceof Error ? error.message : String(error) });
     return NextResponse.json(
       { success: false, error: 'Verification failed' },
       { status: 500 }

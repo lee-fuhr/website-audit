@@ -4,6 +4,9 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { VERSION } from '@/lib/version'
+import { PRICING } from '@shared/config/pricing'
+
+const AUDIT_PRICE = `$${PRICING['website-audit'].base}`
 import { ROICalculator } from './components/ROICalculator'
 import { HomeFooter } from './components/landing/HomeFooter'
 import { WhatWeDigUp } from './components/landing/WhatWeDigUp'
@@ -98,7 +101,7 @@ export default function HomePage() {
                 to say &lsquo;different.&rsquo;
               </h1>
               <p className="text-body text-xl md:text-2xl max-w-xl mb-4">
-                We crawl every page, find every generic phrase, and give you the <strong>exact rewrites</strong>. 15–20 specific fixes per site. Critical issues free. Full list $400.
+                We crawl every page, find every generic phrase, and give you the <strong>exact rewrites</strong>. 15–20 specific fixes per site. Critical issues free. Full list {AUDIT_PRICE}.
               </p>
               <p className="text-sm text-[var(--muted-foreground)] mb-6">27 years helping B2B companies win on value, not price.</p>
               <div className="flex flex-wrap gap-4 text-sm text-[var(--muted-foreground)]">
@@ -224,7 +227,7 @@ export default function HomePage() {
         <div className="max-w-6xl mx-auto">
           <p className="text-label mb-4 text-center">HOW IT WORKS</p>
           <h2 className="text-section text-4xl md:text-5xl lg:text-6xl mb-6 text-center">
-            Critical issues free. <span className="text-[var(--muted-foreground)]">Full fix-it list $400.</span>
+            Critical issues free. <span className="text-[var(--muted-foreground)]">Full fix-it list {AUDIT_PRICE}.</span>
           </h2>
           <p className="text-body text-lg text-[var(--muted-foreground)] text-center mb-16 max-w-2xl mx-auto">
             See your worst problems instantly. The full report is what messaging consultants charge $5,000+ for, minus the 6-week timeline.
@@ -267,7 +270,7 @@ export default function HomePage() {
                 COMPLETE
               </div>
               <div className="mb-4">
-                <span className="bg-[var(--accent)] text-[var(--accent-foreground)] px-3 py-1 text-sm font-bold">$400</span>
+                <span className="bg-[var(--accent)] text-[var(--accent-foreground)] px-3 py-1 text-sm font-bold">{AUDIT_PRICE}</span>
                 <p className="text-section text-xl mt-2">Full fix-it list</p>
               </div>
               <p className="text-body text-sm text-[var(--muted-foreground)] mb-6">20+ page report. Closes one extra deal = pays for itself 250×</p>
@@ -330,7 +333,7 @@ export default function HomePage() {
       </section>
 
       {/* ROI calculation */}
-      <ROICalculator toolCost={400} />
+      <ROICalculator toolCost={PRICING['website-audit'].base} />
 
       {/* Before/After Examples */}
       <section className="px-4 md:px-8 lg:px-12 py-20 md:py-28 border-t-2 border-[var(--border-subtle)]">
@@ -416,10 +419,10 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Free entry points — cross-sells before the $400 CTA */}
+      {/* Free entry points — cross-sells before the audit CTA */}
       <section className="px-4 md:px-8 lg:px-12 py-16 border-t-2 border-[var(--border-subtle)]">
         <div className="max-w-6xl mx-auto">
-          <p className="text-label mb-4 text-center">NOT READY FOR $400 YET?</p>
+          <p className="text-label mb-4 text-center">NOT READY FOR {AUDIT_PRICE} YET?</p>
           <h2 className="text-section text-3xl md:text-4xl mb-4 text-center">
             Try free first
           </h2>

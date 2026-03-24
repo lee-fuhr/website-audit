@@ -1,5 +1,16 @@
 import { parseCompetitorAnalysisResponse } from '@/lib/analysis/enrichment-parsers'
 
+jest.mock('@shared/lib/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  },
+}))
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { logger: mockLogger } = require('@shared/lib/logger')
+
 describe('parseCompetitorAnalysisResponse', () => {
   // UNHAPPY PATHS FIRST
 
@@ -85,14 +96,8 @@ describe('parseCompetitorAnalysisResponse', () => {
   // TRUNCATION FILTERING (v2.0.1 fix)
 
   describe('truncation filtering', () => {
-    let warnSpy: jest.SpyInstance
-
     beforeEach(() => {
-      warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    })
-
-    afterEach(() => {
-      warnSpy.mockRestore()
+      mockLogger.warn.mockClear()
     })
 
     it('filters weakness that starts with ellipsis + lowercase (mid-word truncation)', () => {
@@ -103,8 +108,8 @@ describe('parseCompetitorAnalysisResponse', () => {
       })
       const result = parseCompetitorAnalysisResponse(input, 'https://example.com')
       expect(result!.weaknesses).toEqual([])
-      expect(warnSpy).toHaveBeenCalledWith(
-        '[analyze] Filtered truncated weakness (starts mid-word)',
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'Filtered truncated weakness (starts mid-word)',
         expect.objectContaining({ weakness: '...nd what you want from this site' })
       )
     })
@@ -117,8 +122,8 @@ describe('parseCompetitorAnalysisResponse', () => {
       })
       const result = parseCompetitorAnalysisResponse(input, 'https://example.com')
       expect(result!.weaknesses).toEqual([])
-      expect(warnSpy).toHaveBeenCalledWith(
-        '[analyze] Filtered truncated weakness (mid-word ellipsis)',
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'Filtered truncated weakness (mid-word ellipsis)',
         expect.objectContaining({ weakness: 'Some metric...ly over 60% of visitors bounce' })
       )
     })
@@ -131,8 +136,8 @@ describe('parseCompetitorAnalysisResponse', () => {
       })
       const result = parseCompetitorAnalysisResponse(input, 'https://example.com')
       expect(result!.weaknesses).toEqual([])
-      expect(warnSpy).toHaveBeenCalledWith(
-        '[analyze] Filtered truncated weakness (too short/no spaces)',
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'Filtered truncated weakness (too short/no spaces)',
         expect.objectContaining({ weakness: 'bad' })
       )
     })
@@ -174,14 +179,8 @@ describe('parseCompetitorAnalysisResponse', () => {
   // CONTRADICTION FILTERING
 
   describe('contradiction filtering', () => {
-    let warnSpy: jest.SpyInstance
-
     beforeEach(() => {
-      warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    })
-
-    afterEach(() => {
-      warnSpy.mockRestore()
+      mockLogger.warn.mockClear()
     })
 
     it('filters weakness that contradicts a strength (proof / no proof)', () => {
@@ -192,8 +191,8 @@ describe('parseCompetitorAnalysisResponse', () => {
       })
       const result = parseCompetitorAnalysisResponse(input, 'https://example.com')
       expect(result!.weaknesses).toEqual([])
-      expect(warnSpy).toHaveBeenCalledWith(
-        '[analyze] Filtered contradictory weakness',
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'Filtered contradictory weakness',
         expect.objectContaining({ conflictsWith: 'proof' })
       )
     })
@@ -232,14 +231,8 @@ describe('parseCompetitorAnalysisResponse', () => {
   // LOW SCORE GUARANTEE
 
   describe('low score fallback weaknesses', () => {
-    let warnSpy: jest.SpyInstance
-
     beforeEach(() => {
-      warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    })
-
-    afterEach(() => {
-      warnSpy.mockRestore()
+      mockLogger.warn.mockClear()
     })
 
     it('adds two fallback weaknesses when score < 40 and no weaknesses remain', () => {

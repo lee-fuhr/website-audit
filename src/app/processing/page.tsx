@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { processingStyles } from './processing-styles'
 import { EnrichmentBar } from './components/EnrichmentBar'
+import { ProcessingSkeleton } from '@/components/PageSkeleton'
 import { ResultsReadySection } from './components/ResultsReadySection'
 import { ProcessingSection } from './components/ProcessingSection'
 import { ErrorState } from './components/ErrorState'
@@ -481,11 +482,7 @@ function ProcessingContent() {
 
 export default function ProcessingPage() {
   return (
-    <Suspense fallback={
-      <main className="min-h-screen bg-[var(--background)] flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-[var(--border)] border-t-[var(--accent)] rounded-full animate-spin" />
-      </main>
-    }>
+    <Suspense fallback={<ProcessingSkeleton />}>
       <ProcessingContent />
     </Suspense>
   )

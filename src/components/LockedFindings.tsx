@@ -1,5 +1,9 @@
 'use client'
 
+import { PRICING } from '@shared/config/pricing'
+
+const AUDIT_PRICE = `$${PRICING['website-audit'].base}`
+
 export function LockedFindings({ onUnlock }: { onUnlock: () => void }) {
   return (
     <div className="my-6 p-6 bg-[var(--muted)] border-2 border-dashed border-[var(--border)] text-center">
@@ -14,7 +18,7 @@ export function LockedFindings({ onUnlock }: { onUnlock: () => void }) {
           onClick={onUnlock}
           className="bg-[var(--accent)] text-white px-5 py-2.5 text-sm font-semibold hover:opacity-90 transition-opacity"
         >
-          Unlock full audit for $400 →
+          Unlock full audit for {AUDIT_PRICE} →
         </button>
       </div>
     </div>
@@ -34,7 +38,7 @@ export function LockedOverlay({ onUnlock }: { onUnlock: () => void }) {
             onClick={onUnlock}
             className="bg-[var(--accent)] text-white px-6 py-3 font-semibold hover:opacity-90 transition-opacity"
           >
-            Unlock for $400 →
+            Unlock for {AUDIT_PRICE} →
           </button>
           <p className="text-xs text-[var(--muted-foreground)] mt-4">
             You've seen the preview. No refunds after purchase.

@@ -11,6 +11,7 @@ import { getAnthropicClient } from '@/lib/analyzer';
 import { getState, updateState, FullResults } from './state';
 import { buildCompetitorAnalysisPrompt, buildCompetitorDiscoveryPrompt } from './enrichment-prompts';
 import { parseCompetitorAnalysisResponse, heuristicCompetitorAnalysis, buildGaps } from './enrichment-parsers';
+import { logger } from '@shared/lib/logger';
 
 // ---------------------------------------------------------------------------
 // Interfaces
@@ -65,7 +66,7 @@ export async function analyzeCompetitorDeep(
     const parsed = parseCompetitorAnalysisResponse(text, url);
     if (parsed) return parsed;
   } catch (error) {
-    console.error(`AI competitor analysis failed for ${url}:`, error);
+    logger.error(`AI competitor analysis failed for ${url}`, { tool: 'website-audit', fn: 'analyzeCompetitorDeep', err: String(error) });
   }
 
   // FALLBACK: Heuristic scoring when AI fails
@@ -110,7 +111,7 @@ export async function discoverCompetitors(
 
     return [];
   } catch (error) {
-    console.error('Competitor discovery failed:', error);
+    logger.error('Competitor discovery failed', { tool: 'website-audit', fn: 'discoverCompetitors', err: String(error) });
     return [];
   }
 }
@@ -160,7 +161,7 @@ export async function analyzeCompetitorsInline(
               };
             }
           } catch (err) {
-            console.error('[analyze] Could not analyze competitor (inline)', { competitorUrl, message: err instanceof Error ? err.message : String(err), timestamp: new Date().toISOString() });
+            logger.error('Could not analyze competitor (inline)', { tool: 'website-audit', fn: 'analyzeCompetitorsInline', competitorUrl, err: err instanceof Error ? err.message : String(err) });
           }
           return null;
         })
@@ -184,7 +185,7 @@ export async function analyzeCompetitorsInline(
       detailedScores: competitorScores,
     };
   } catch (error) {
-    console.error('Inline competitor analysis error:', error);
+    logger.error('Inline competitor analysis error', { tool: 'website-audit', fn: 'analyzeCompetitorsInline', err: String(error) });
     return null;
   }
 }
@@ -277,7 +278,7 @@ export async function analyzeCompetitors(analysisId: string, competitors: string
               };
             }
           } catch (err) {
-            console.error('[analyze] Could not analyze competitor (background)', { analysisId, competitorUrl, message: err instanceof Error ? err.message : String(err), timestamp: new Date().toISOString() });
+            logger.error('Could not analyze competitor (background)', { tool: 'website-audit', fn: 'analyzeCompetitors', analysisId, competitorUrl, err: err instanceof Error ? err.message : String(err) });
             if (statusIdx >= 0) {
               competitorStatuses[statusIdx].status = 'error';
             }
@@ -350,7 +351,7 @@ export async function analyzeCompetitors(analysisId: string, competitors: string
     });
 
   } catch (error) {
-    console.error('Competitor analysis error:', error);
+    logger.error('Competitor analysis error', { tool: 'website-audit', fn: 'analyzeCompetitors', err: String(error) });
     await updateState(analysisId, {
       enrichmentStatus: 'failed',
       enrichmentMessage: 'Could not analyze competitors',
@@ -384,7 +385,7 @@ export async function analyzeSocialProfiles(analysisId: string, socialUrls: stri
     });
 
   } catch (error) {
-    console.error('Social profile analysis error:', error);
+    logger.error('Social profile analysis error', { tool: 'website-audit', fn: 'analyzeSocialProfiles', err: String(error) });
     await updateState(analysisId, {
       enrichmentStatus: 'failed',
       enrichmentMessage: 'Could not process social profile',

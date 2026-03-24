@@ -5,7 +5,10 @@ import { Tooltip } from '@/components/Tooltip'
 import { createTextFragmentUrl, getScoreColorClass, getScoreBgClass, getScoreBorderClass, getScoreLabel, getScoreDescription, scoreCategories } from './preview-utils'
 import { LeadCaptureSection } from './LeadCaptureSection'
 import { safeClipboardWrite } from '@/lib/utils'
+import { PRICING } from '@shared/config/pricing'
 import { AnalysisResponse, PreviewData, ViewType } from './types'
+
+const AUDIT_PRICE = `$${PRICING['website-audit'].base}`
 
 interface View {
   id: ViewType
@@ -452,7 +455,7 @@ export function OverviewView({
                   disabled={isCheckingOut}
                   className="bg-white text-[var(--accent)] px-10 py-4 text-lg font-bold hover:bg-white/90 transition-all shadow-lg disabled:opacity-50"
                 >
-                  {isCheckingOut ? 'Starting checkout...' : 'Unlock full audit — $400'}
+                  {isCheckingOut ? 'Starting checkout...' : `Unlock full audit — ${AUDIT_PRICE}`}
                 </button>
                 <p className="text-xs text-white/60 mt-4">One-time payment. No subscription. Instant access.</p>
               </div>

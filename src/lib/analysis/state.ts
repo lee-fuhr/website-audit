@@ -6,6 +6,7 @@
  */
 
 import { kv } from '@vercel/kv';
+import { logger } from '@shared/lib/logger';
 
 // Use Vercel KV if available, otherwise fall back to in-memory (for local dev)
 export const useKV = process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
@@ -142,7 +143,7 @@ export async function getState(id: string): Promise<AnalysisState | null> {
     try {
       return await kv.get<AnalysisState>(`analysis:${id}`);
     } catch (error) {
-      console.error(`[KV Error] Failed to get state for ${id}:`, error);
+      logger.error(`Failed to get state for ${id}`, { tool: 'website-audit', fn: 'getState', err: String(error) });
       return localStore.get(id) || null;
     }
   }
@@ -155,7 +156,7 @@ export async function setState(id: string, state: AnalysisState): Promise<void> 
       // Store with 48 hour expiry — long enough for a customer to complete payment and return
       await kv.set(`analysis:${id}`, state, { ex: 172800 });
     } catch (error) {
-      console.error(`[KV Error] Failed to set state for ${id}:`, error);
+      logger.error(`Failed to set state for ${id}`, { tool: 'website-audit', fn: 'setState', err: String(error) });
       localStore.set(id, state);
     }
   } else {

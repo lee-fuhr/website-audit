@@ -11,6 +11,7 @@ import { buildAnalysisPrompt, buildSecondPassPrompt } from './analysis/prompts'
 import { parseAnalysisResponse } from './analysis/parser'
 import { countTotalFindings, findSparseCategories, mergeAnalysisResults } from './analysis/merge'
 import { generateFallbackAnalysis } from './analysis/fallback'
+import { logger } from '@shared/lib/logger'
 
 let _anthropic: Anthropic | null = null
 
@@ -20,7 +21,7 @@ export async function getAnthropicClient() {
     if (!apiKey) {
       throw new Error('ANTHROPIC_API_KEY is not set')
     }
-    console.log(`[AI] Initializing Anthropic client - key present: ${!!apiKey}, length: ${apiKey?.length || 0}`)
+    logger.info(`Initializing Anthropic client - key present: ${!!apiKey}, length: ${apiKey?.length || 0}`, { tool: 'website-audit', fn: 'getAnthropicClient' })
     _anthropic = new Anthropic({ apiKey })
   }
   return _anthropic
@@ -98,22 +99,22 @@ export async function analyzeWebsite(
     // Debug: Check API key at runtime
     const apiKeyPresent = !!process.env.ANTHROPIC_API_KEY
     const apiKeyLength = process.env.ANTHROPIC_API_KEY?.length || 0
-    console.log(`[AI] API Key check - present: ${apiKeyPresent}, length: ${apiKeyLength}`)
+    logger.info(`API Key check - present: ${apiKeyPresent}, length: ${apiKeyLength}`, { tool: 'website-audit', fn: 'analyzeWebsite' })
 
     // ===== FIRST PASS =====
-    console.log(`[AI] FIRST PASS: Analyzing ${siteUrl} with ${pagesContent.length} pages...`)
+    logger.info(`FIRST PASS: Analyzing ${siteUrl} with ${pagesContent.length} pages`, { tool: 'website-audit', fn: 'analyzeWebsite' })
     const firstPassResult = await runAnalysisPass(siteUrl, pagesContent, crawlResult.pages)
 
     // Count findings
     const totalFindings = countTotalFindings(firstPassResult)
     const sparseCategories = findSparseCategories(firstPassResult, MIN_FINDINGS_PER_CATEGORY)
 
-    console.log(`[AI] First pass complete: ${totalFindings} findings, ${sparseCategories.length} sparse categories`)
+    logger.info(`First pass complete: ${totalFindings} findings, ${sparseCategories.length} sparse categories`, { tool: 'website-audit', fn: 'analyzeWebsite' })
 
     // ===== SECOND PASS (if needed) =====
     if (totalFindings < MIN_TOTAL_FINDINGS || sparseCategories.length > 3) {
-      console.log(`[AI] SECOND PASS: Need more findings (have ${totalFindings}, need ${MIN_TOTAL_FINDINGS})`)
-      console.log(`[AI] Sparse categories: ${sparseCategories.join(', ')}`)
+      logger.info(`SECOND PASS: Need more findings (have ${totalFindings}, need ${MIN_TOTAL_FINDINGS})`, { tool: 'website-audit', fn: 'analyzeWebsite' })
+      logger.info(`Sparse categories: ${sparseCategories.join(', ')}`, { tool: 'website-audit', fn: 'analyzeWebsite' })
 
       try {
         const secondPassResult = await runSecondPass(
@@ -127,28 +128,25 @@ export async function analyzeWebsite(
         // Merge results
         const mergedResult = mergeAnalysisResults(firstPassResult, secondPassResult)
         const mergedTotal = countTotalFindings(mergedResult)
-        console.log(`[AI] After merge: ${mergedTotal} total findings`)
+        logger.info(`After merge: ${mergedTotal} total findings`, { tool: 'website-audit', fn: 'analyzeWebsite' })
 
         return mergedResult
       } catch (secondPassError) {
-        console.error('[AI] Second pass failed, using first pass results:', secondPassError)
+        logger.error('Second pass failed, using first pass results', { tool: 'website-audit', fn: 'analyzeWebsite', err: String(secondPassError) })
         return firstPassResult
       }
     }
 
     return firstPassResult
   } catch (error) {
-    console.error('[AI] ===== ANALYSIS ERROR =====')
-    console.error('[AI] Error object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2))
-    console.error('[AI] Error type:', error instanceof Error ? error.constructor.name : typeof error)
-    console.error('[AI] Error message:', error instanceof Error ? error.message : String(error))
-    if (error instanceof Error && 'status' in error) {
-      console.error('[AI] HTTP status:', (error as { status: number }).status)
-    }
-    if (error instanceof Error && 'response' in error) {
-      console.error('[AI] Response:', JSON.stringify((error as { response: unknown }).response))
-    }
-    console.error('[AI] API Key configured:', !!process.env.ANTHROPIC_API_KEY)
+    logger.error('Analysis failed', {
+      tool: 'website-audit',
+      fn: 'analyzeWebsite',
+      err: error instanceof Error ? error.message : String(error),
+      errorType: error instanceof Error ? error.constructor.name : typeof error,
+      httpStatus: error instanceof Error && 'status' in error ? (error as { status: number }).status : undefined,
+      apiKeyConfigured: !!process.env.ANTHROPIC_API_KEY,
+    })
     // Return fallback analysis if AI fails
     return generateFallbackAnalysis(crawlResult.pages, siteUrl)
   }
@@ -173,7 +171,7 @@ async function runAnalysisPass(
     throw new Error('Unexpected Claude response shape')
   }
   const responseText = message.content[0].text
-  console.log(`[AI] Got response, length: ${responseText.length} chars`)
+  logger.info(`Got response, length: ${responseText.length} chars`, { tool: 'website-audit', fn: 'runAnalysisPass' })
 
   return parseAnalysisResponse(responseText, pages)
 }
@@ -199,7 +197,7 @@ async function runSecondPass(
     throw new Error('Unexpected Claude response shape')
   }
   const responseText = message.content[0].text
-  console.log(`[AI] Second pass response, length: ${responseText.length} chars`)
+  logger.info(`Second pass response, length: ${responseText.length} chars`, { tool: 'website-audit', fn: 'runSecondPass' })
 
   return parseAnalysisResponse(responseText, pages)
 }

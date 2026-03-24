@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Footer } from '@/components/Footer'
+import { PreviewSkeleton } from '@/components/PageSkeleton'
 import { formatCompanyName } from '@/lib/utils'
 import { AnalysisResponse, ViewType } from './components/types'
 import {
@@ -21,7 +22,7 @@ import { CopyView } from './components/CopyView'
 import { CompetitorsView } from './components/CompetitorsView'
 import { ResourcesView } from './components/ResourcesView'
 import { ScorecardModal } from './components/ScorecardModal'
-import { downloadFullAuditPDF, downloadBriefPDF, downloadSwipePDF } from './components/PDFGenerators'
+import { downloadFullAuditPDF, downloadBriefPDF, downloadSwipePDF } from './components/pdf'
 
 export default function PreviewPage() {
   const params = useParams()
@@ -219,11 +220,8 @@ export default function PreviewPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[var(--background)] flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-[var(--accent)] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-body text-lg">Loading your report...</p>
-        </div>
+      <main>
+        <PreviewSkeleton />
       </main>
     )
   }
