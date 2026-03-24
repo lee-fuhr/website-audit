@@ -9,9 +9,13 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(request: NextRequest) {
+  if (process.env.NODE_ENV !== 'development') {
+    return new Response(null, { status: 404 })
+  }
+
   const results: Record<string, unknown> = {
     timestamp: new Date().toISOString(),
-    version: '0.8.7',
+    version: process.env.npm_package_version || 'unknown',
   };
 
   // Check env vars (safely - never expose key content)

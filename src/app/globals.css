@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;900&family=Literata:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -11,7 +9,8 @@
   --muted-foreground: #525252;
   --accent: #1e3a5f;
   --accent-foreground: #FFFFFF;
-  --border: #E5E5E5;
+  --border: #0A0A0A;
+  --border-subtle: #E5E5E5;
   --border-dark: #0A0A0A;
   --success: #15803d;
   --success-bg: #dcfce7;
@@ -23,6 +22,19 @@
   --font-display: 'Albert Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-body: 'Literata', Georgia, serif;
   --font-mono: 'JetBrains Mono', monospace;
+
+  /* Score color tokens */
+  --score-excellent: #16a34a;
+  --score-good: #ca8a04;
+  --score-fair: #ea580c;
+  --score-poor: #dc2626;
+  --score-excellent-bg: #dcfce7;
+  --score-good-bg: #fef9c3;
+  --score-fair-bg: #ffedd5;
+  --score-poor-bg: #fee2e2;
+
+  /* Focus ring token */
+  --focus-ring: var(--accent);
 }
 
 * {
@@ -58,6 +70,11 @@ body::before {
 ::selection {
   background-color: var(--foreground);
   color: var(--background);
+}
+
+*:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 /* Typography Classes - LFI Design System */
@@ -161,7 +178,7 @@ body::before {
 /* Dividers */
 .divider {
   height: 2px;
-  background: var(--border);
+  background: var(--border-subtle);
   margin: 3rem 0;
 }
 
@@ -187,7 +204,7 @@ body::before {
 
 .score-bar {
   height: 8px;
-  background: var(--border);
+  background: var(--border-subtle);
 }
 
 .score-bar-fill {
@@ -246,6 +263,17 @@ body::before {
   border-color: var(--accent);
 }
 
+/* Kinetic card hover — suite signature interaction */
+.card-kinetic {
+  transition: transform 120ms ease, box-shadow 120ms ease;
+  cursor: default;
+}
+
+.card-kinetic:hover {
+  transform: translate(-3px, -3px);
+  box-shadow: 4px 4px 0px var(--foreground);
+}
+
 .action-card.featured {
   border-color: var(--accent);
   background: linear-gradient(135deg, rgba(26, 58, 92, 0.03) 0%, transparent 100%);
@@ -269,7 +297,7 @@ body::before {
 .comparison-header {
   background: var(--muted);
   padding: 0.75rem 1.5rem;
-  border-bottom: 2px solid var(--border);
+  border-bottom: 2px solid var(--border-subtle);
 }
 
 .comparison-content {
@@ -285,14 +313,14 @@ body::before {
 
 .comparison-before {
   padding: 2rem;
-  border-right: 2px solid var(--border);
+  border-right: 2px solid var(--border-subtle);
   background: rgba(220, 38, 38, 0.02);
 }
 
 @media (max-width: 768px) {
   .comparison-before {
     border-right: none;
-    border-bottom: 2px solid var(--border);
+    border-bottom: 2px solid var(--border-subtle);
   }
 }
 
@@ -341,14 +369,14 @@ body::before {
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  border: 2px solid var(--border);
+  border: 2px solid var(--border-subtle);
 }
 
 .data-table th,
 .data-table td {
   padding: 1rem;
   text-align: left;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
 }
 
 .data-table th {
@@ -379,7 +407,7 @@ body::before {
 
 .action-list li {
   padding: 0.75rem 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: flex-start;
   gap: 1rem;

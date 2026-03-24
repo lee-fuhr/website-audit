@@ -1,6 +1,6 @@
 /**
  * Stripe Checkout API Route
- * Website Messaging Audit - $400
+ * Website Messaging Audit
  */
 
 // Force dynamic to skip static generation
@@ -9,12 +9,13 @@ export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
+import { PRICING } from '@shared/config/pricing';
 
 // Lazy initialization to avoid build-time errors
 const getStripe = () => new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 const TOOL_NAME = 'Website Messaging Audit';
-const TOOL_PRICE = 400;
+const pricing = PRICING['website-audit'];
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,12 +30,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Calculate price (handle promo codes if needed)
-    let finalPrice = TOOL_PRICE;
+    let finalPrice = pricing.base;
     let discount = 0;
 
-    if (promoCode === 'LAUNCH30') {
-      discount = Math.round(TOOL_PRICE * 0.3);
-      finalPrice = TOOL_PRICE - discount;
+    if (promoCode === pricing.promo.code) {
+      discount = pricing.base - pricing.promo.discounted;
+      finalPrice = pricing.promo.discounted;
     }
 
     // Get the base URL for redirects
@@ -57,17 +58,17 @@ export async function POST(request: NextRequest) {
         },
       ],
       mode: 'payment',
-      success_url: `${origin}/results/${analysisId}?session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${origin}/preview/${analysisId}?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/preview/${analysisId}`,
       customer_email: email,
       metadata: {
         tool: TOOL_NAME,
         analysisId,
-        originalPrice: TOOL_PRICE.toString(),
+        originalPrice: pricing.base.toString(),
         discount: discount.toString(),
         promoCode: promoCode || '',
       },
-      allow_promotion_codes: true,
+      allow_promotion_codes: false, // server-side LAUNCH30 is the only discount mechanism
     });
 
     return NextResponse.json({

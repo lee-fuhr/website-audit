@@ -13,10 +13,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { Resend } from 'resend';
 import { kv } from '@vercel/kv';
+import { logger } from '@shared/lib/logger';
 
-// Lazy initialization to avoid build-time errors
-const getStripe = () => new Stripe(process.env.STRIPE_SECRET_KEY!);
-const getResend = () => new Resend(process.env.RESEND_API_KEY);
+let _stripe: Stripe | null = null;
+function getStripe() {
+  if (!_stripe) _stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2025-12-15.clover' });
+  return _stripe;
+}
+
+let _resend: Resend | null = null;
+function getResend() {
+  if (!_resend) _resend = new Resend(process.env.RESEND_API_KEY);
+  return _resend;
+}
 
 // Check if KV is available
 const useKV = process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
@@ -38,11 +47,20 @@ export async function POST(request: NextRequest) {
       process.env.STRIPE_WEBHOOK_SECRET!
     );
   } catch (err) {
-    console.error('Webhook signature verification failed:', err);
+    logger.error('Webhook signature verification failed', { tool: 'website-audit', fn: 'route handler', err: String(err) });
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
   }
 
   if (event.type === 'checkout.session.completed') {
+    // Idempotency check: prevent double-processing the same webhook event
+    const eventId = event.id;
+    if (useKV) {
+      const alreadyProcessed = await kv.get(`webhook:processed:${eventId}`);
+      if (alreadyProcessed) {
+        return NextResponse.json({ received: true });
+      }
+    }
+
     const session = event.data.object as Stripe.Checkout.Session;
 
     const { tool, analysisId } = session.metadata || {};
@@ -60,13 +78,13 @@ export async function POST(request: NextRequest) {
             paidAt: new Date().toISOString(),
             customerEmail,
             amountPaid,
-          }, { ex: 86400 }); // Extend TTL to 24 hours after payment
-          console.log(`[Webhook] Marked analysis ${analysisId} as paid for ${customerEmail}`);
+          }, { ex: 86400 * 30 }); // Extend TTL to 30 days after payment
+          logger.info('Marked analysis as paid', { tool: 'website-audit', fn: 'route handler', analysisId, customerEmail });
         } else {
-          console.error(`[Webhook] Analysis ${analysisId} not found in KV`);
+          logger.error('Analysis not found in KV', { tool: 'website-audit', fn: 'route handler', analysisId });
         }
       } catch (kvError) {
-        console.error(`[Webhook] Failed to update analysis state:`, kvError);
+        logger.error('Failed to update analysis state in KV', { tool: 'website-audit', fn: 'route handler', err: String(kvError) });
       }
     }
 
@@ -80,7 +98,9 @@ export async function POST(request: NextRequest) {
         };
 
         const baseUrl = toolUrls[tool || ''] || 'https://leefuhr.com';
-        const resultsUrl = `${baseUrl}/results/${analysisId}`;
+        // Website audit uses /preview/ not /results/
+        const pathSegment = tool === 'Website Messaging Audit' ? 'preview' : 'results';
+        const resultsUrl = `${baseUrl}/${pathSegment}/${analysisId}`;
 
         await getResend().emails.send({
           from: 'Lee Fuhr <tools@leefuhr.com>',
@@ -93,7 +113,7 @@ export async function POST(request: NextRequest) {
           }),
         });
 
-        console.log(`Receipt sent to ${customerEmail} for ${tool}`);
+        logger.info('Receipt sent', { tool: 'website-audit', fn: 'route handler', customerEmail, toolName: tool });
 
         // Notify Lee
         await getResend().emails.send({
@@ -103,8 +123,13 @@ export async function POST(request: NextRequest) {
           html: `<p style="font-family:sans-serif"><strong>${customerEmail}</strong> just paid $${amountPaid} for ${tool}.</p><p style="font-family:sans-serif"><a href="${resultsUrl}">View their results →</a></p>`,
         });
       } catch (emailError) {
-        console.error('Failed to send receipt email:', emailError);
+        logger.error('Failed to send receipt email', { tool: 'website-audit', fn: 'route handler', err: String(emailError) });
       }
+    }
+
+    // Mark event as processed to prevent double-sends (7-day TTL)
+    if (useKV) {
+      await kv.set(`webhook:processed:${eventId}`, true, { ex: 86400 * 7 });
     }
   }
 
